@@ -322,8 +322,8 @@ fn fail(rt: *Runtime, entry: *Entry, err: anyerror) void {
     }) catch {};
 }
 
-/// Caller holds rt.mutex. Publishing a full inbox projection lets subscribers
-/// replace their inbox after an admission or clearing.
+/// Caller holds rt.mutex. Publishing a full inbox projection means an SSE
+/// subscriber can replace its hydrated inbox after an admission or clearing.
 pub fn publishInbox(rt: *Runtime, entry: *Entry) void {
     var arena: std.heap.ArenaAllocator = .init(rt.gpa);
     defer arena.deinit();

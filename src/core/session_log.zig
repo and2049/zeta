@@ -141,7 +141,7 @@ pub fn closeOrphans(s: *Session) !void {
             if (resolved.contains(call.id)) continue;
             var id = generator.next(s.io, .message);
             while (s.message_ids.contains(id.slice())) id = generator.next(s.io, .message);
-            try s.append(.{ .id = id.slice(), .role = .tool_result, .content = &.{.{ .text = "Tool execution interrupted by restart; not re-executed." }}, .timestamp = Io.Clock.real.now(s.io).toMilliseconds(), .toolCallId = call.id, .toolName = call.name, .isError = true });
+            try s.append(.{ .id = id.slice(), .role = .tool_result, .content = &.{.{ .text = "Tool execution interrupted by server restart; not re-executed." }}, .timestamp = Io.Clock.real.now(s.io).toMilliseconds(), .toolCallId = call.id, .toolName = call.name, .isError = true });
             try resolved.put(a, call.id, {});
         };
     }

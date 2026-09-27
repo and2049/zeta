@@ -67,7 +67,7 @@ pub const Stop = struct {
     continued: bool,
 };
 
-/// Why a session's run is its first in this process: a new session
+/// Why a session's run is its first in this server process: a new session
 /// (`startup`) or one with history from before a restart (`resume`).
 pub const SessionSource = enum { startup, @"resume" };
 

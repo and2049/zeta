@@ -44,7 +44,7 @@ pub const Options = struct {
     /// config's default. Not a config layer.
     thinking: ?[]const u8 = null,
     /// Present even when both fields are null: the client environment replaces
-    /// the process environment for these selectors.
+    /// the server's old process environment for these selectors.
     environment: ?Environment = null,
 };
 /// `compaction`: when the history is summarized to fit the context window.

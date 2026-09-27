@@ -30,7 +30,7 @@ pub const Info = struct {
 pub const Fork = struct { session: []const u8, message: []const u8 };
 
 /// Selectors retained across restarts. `environment_present` distinguishes an
-/// explicit empty client environment from using the process environment.
+/// explicit empty client environment from using the server's own environment.
 pub const Metadata = struct {
     profile: ?[]const u8 = null,
     model: ?[]const u8 = null,
@@ -157,7 +157,7 @@ pub const Session = struct {
         s.poisoned = false;
         s.model_selected = false;
         const path = try a.dupe(u8, physical_path);
-        // Another runtime holding it opens the session: `error.WouldBlock`.
+        // Another server holding it serves the session: `error.WouldBlock`.
         s.path = path;
         s.file = try Io.Dir.cwd().openFile(io, path, .{ .mode = .read_write, .lock = .exclusive, .lock_nonblocking = true });
         errdefer s.file.?.close(io);

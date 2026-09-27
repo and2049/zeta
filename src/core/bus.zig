@@ -86,7 +86,8 @@ pub const Bus = struct {
         return b.seq;
     }
 
-    /// Whether any subscriber is attached that could answer a permission ask.
+    /// Whether any subscriber is attached (for example, an SSE client that
+    /// could answer a permission ask).
     pub fn hasSubscribers(b: *Bus) bool {
         b.mutex.lockUncancelable(b.io);
         defer b.mutex.unlock(b.io);

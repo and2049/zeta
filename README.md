@@ -2,8 +2,15 @@
 
 A small coding agent in Zig, with no dependencies beyond the standard library.
 
-- Extensible agent core with plugins for tools, providers and hooks.
+- One foreground server per user; HTTP clients talk to it over localhost HTTP + SSE.
+- Everything in the server is a plugin: tools, providers, hooks.
 - Status: early development.
+
+## Quick start
+
+```sh
+zeta serve
+```
 
 ## Configure
 
@@ -21,7 +28,7 @@ A small coding agent in Zig, with no dependencies beyond the standard library.
 ## Commands
 
 ```sh
-zeta --version                        # print version
+zeta serve [--hostname 0.0.0.0]      # run the server in the foreground
 ```
 
 ## Docs
@@ -29,6 +36,7 @@ zeta --version                        # print version
 - [Overview](docs/README.md)
 - [Configuration](docs/configuration.md)
 - [compaction](docs/compaction.md)
+- [HTTP API and events](docs/protocol.md)
 
 ## Build
 
@@ -38,6 +46,7 @@ Requires Zig 0.16.0.
 zig build                    # binary at zig-out/bin/zeta
 zig build test               # unit tests
 zig build docs               # docs at zig-out/docs
+cd tests/e2e && bun test     # end-to-end tests (needs bun and a built binary)
 ```
 
 ## License

@@ -7,6 +7,7 @@ Rules for anyone (human or agent) changing zeta.
 - `zig fmt src build.zig`
 - `zig build test`
 - `zig build` and run the fresh binary for anything user-visible.
+- E2E: `bun test` in `tests/e2e/` when the server, client, or loop changes.
 
 ## Code
 
@@ -15,7 +16,8 @@ Rules for anyone (human or agent) changing zeta.
 - Module boundaries are enforced by `build.zig` imports:
   - `proto`, `platform`: std only.
   - `plugin`: proto.
-  - `core`: proto, plugin.
+  - `core`: proto, plugin. Never server.
+  - `server`: proto, plugin, core, platform.
 - Files stay under about 400 lines.
 - Explicit allocators and documented ownership. Prefer arenas scoped to a turn or request.
 - Tests live in the same file, using `std.testing.allocator` and `std.testing.io`.
@@ -23,5 +25,5 @@ Rules for anyone (human or agent) changing zeta.
 ## Commits
 
 - Title: `type(scope): summary`. Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`.
-- Scopes: `core`, `plugin`, `proto`, `platform`, `build`, `docs`.
+- Scopes: `core`, `plugin`, `proto`, `platform`, `server`, `build`, `docs`, `e2e`.
 - Body: plain, at most 4 lines.

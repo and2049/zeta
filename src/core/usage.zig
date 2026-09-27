@@ -90,7 +90,7 @@ pub fn ofSession(rt: *Runtime, arena: Allocator, id: []const u8) !Report {
     return b.finish();
 }
 
-/// Totals of every session this runtime has (of `location`'s only, when
+/// Totals of every session this server has (of `location`'s only, when
 /// given) created since `since` (Unix ms; 0 for all), in `arena`.
 pub fn ofAll(rt: *Runtime, arena: Allocator, location: ?[]const u8, since: i64) !Report {
     var b: Builder = .{ .arena = arena };

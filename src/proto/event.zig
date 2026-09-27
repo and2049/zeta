@@ -1,4 +1,4 @@
-//! The event envelope published on the core bus.
+//! The event envelope. One shape throughout the SSE feed.
 //!
 //! `{"seq":812,"type":"message.part.delta","session":"ses_…","location":"/p","time":1790000000000,"data":{…}}`
 
@@ -39,6 +39,8 @@ pub const Envelope = struct {
 };
 
 pub const types = struct {
+    pub const server_connected = "server.connected";
+    pub const server_heartbeat = "server.heartbeat";
     pub const session_created = "session.created";
     pub const session_updated = "session.updated";
     pub const session_moved = "session.moved";
@@ -70,7 +72,7 @@ pub const types = struct {
     pub const tool_execution_update = "tool.execution.update";
     pub const tool_execution_end = "tool.execution.end";
     /// A tool call needs approval (`{id, action, pattern, toolCallId,
-    /// timeoutMs, expiresAt}`); answered by the permission broker.
+    /// timeoutMs, expiresAt}`); answered with `POST /permissions/:id/reply`.
     /// Then `{id, reply}` once answered, expired or withdrawn.
     pub const permission_asked = "permission.asked";
     pub const permission_resolved = "permission.resolved";
@@ -96,10 +98,10 @@ pub const Decoded = struct {
 test "envelope encodes raw data and omits null fields" {
     var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer out.deinit();
-    const e: Envelope = .{ .seq = 1, .type = types.session_created, .time = 5, .data = "{\"a\":[1]}" };
+    const e: Envelope = .{ .seq = 1, .type = types.server_connected, .time = 5, .data = "{\"a\":[1]}" };
     try e.write(&out.writer);
     try std.testing.expectEqualStrings(
-        \\{"seq":1,"type":"session.created","time":5,"data":{"a":[1]}}
+        \\{"seq":1,"type":"server.connected","time":5,"data":{"a":[1]}}
     , out.written());
 
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);

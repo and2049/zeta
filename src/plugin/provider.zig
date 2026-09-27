@@ -112,7 +112,7 @@ pub const Credentials = struct {
     account_id: ?[]const u8 = null,
 };
 
-/// Resolved per provider request, so expiring OAuth credentials can refresh.
+/// Resolved per HTTP request, so expiring OAuth credentials can refresh.
 pub const Authentication = struct {
     ctx: ?*anyopaque,
     resolve: *const fn (?*anyopaque, Allocator, Io) anyerror!Credentials,

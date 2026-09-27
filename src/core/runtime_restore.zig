@@ -1,4 +1,4 @@
-//! Startup scan and validation of persisted session logs.
+//! Startup discovery and validation of persisted session logs.
 const std = @import("std");
 const Io = std.Io;
 const Runtime = @import("Runtime.zig");
@@ -66,8 +66,8 @@ pub fn restore(rt: *Runtime) !RestoreReport {
             }
             const session = Session.loadAtPath(rt.gpa, rt.io, path, id, location.?) catch |err| {
                 if (err == error.WouldBlock) {
-                    // Open in another runtime.
-                    std.log.info("session {s} is open in another runtime; not loaded", .{id});
+                    // Served by another zeta server.
+                    std.log.info("session {s} is open in another server; not loaded", .{id});
                     report.skipped += 1;
                     continue;
                 }

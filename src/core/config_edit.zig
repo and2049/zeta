@@ -14,8 +14,8 @@ const max_file = 1024 * 1024;
 
 pub const Target = enum { user, project };
 
-/// `location` is the already-resolved project base directory. The caller is
-/// responsible for authorization and path resolution.
+/// `location` is the already-resolved project base directory, not a query
+/// string. The server is responsible for authorization and path resolution.
 pub fn pathFor(arena: Allocator, target: Target, config_dir: []const u8, location: []const u8) ![]const u8 {
     return switch (target) {
         .user => std.fs.path.join(arena, &.{ config_dir, config.file_name }),
