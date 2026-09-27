@@ -5,6 +5,7 @@ const Server = @import("Server.zig");
 const conn = @import("conn.zig");
 const Ctx = conn.Ctx;
 const admin = @import("admin_routes.zig");
+const auth_routes = @import("auth_routes.zig");
 const query = @import("query.zig");
 const session_actions = @import("session_actions.zig");
 const file_routes = @import("file_routes.zig");
@@ -13,6 +14,7 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
     var seg_buf: [8][]const u8 = undefined;
     const seg = conn.segments(c.path, &seg_buf);
 
+    if (seg.len >= 2 and std.mem.eql(u8, seg[0], "auth")) return auth_routes.dispatch(s, c, seg);
     if (seg.len >= 1 and seg.len <= 2 and std.mem.eql(u8, seg[0], "files")) {
         if (seg.len == 1) return file_routes.dispatch(c, "list");
         if (std.mem.eql(u8, seg[1], "find") or std.mem.eql(u8, seg[1], "read")) return file_routes.dispatch(c, seg[1]);
@@ -21,6 +23,8 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
 
     if (seg.len == 2 and std.mem.eql(u8, seg[0], "server") and std.mem.eql(u8, seg[1], "stop")) return admin.stop(s, c);
     if (seg.len == 2 and std.mem.eql(u8, seg[0], "registry") and std.mem.eql(u8, seg[1], "reload")) return admin.reload(s, c);
+    // Server names may be any string: the client percent-encodes them.
+    if ((seg.len == 1 or seg.len == 2) and std.mem.eql(u8, seg[0], "credentials")) return admin.credentials(s, c, if (seg.len == 2) seg[1] else null);
     if (seg.len == 1) {
         if (std.mem.eql(u8, seg[0], "config") and c.method == .PATCH) return admin.patchConfig(s, c);
         for ([_][]const u8{ "config", "models", "registry" }) |kind| {

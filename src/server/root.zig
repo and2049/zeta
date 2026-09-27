@@ -7,5 +7,7 @@ pub const routes = @import("routes.zig");
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("auth_flow.zig");
+    _ = @import("auth_routes.zig");
     _ = @import("limits.zig");
 }

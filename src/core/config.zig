@@ -1,9 +1,9 @@
 //! Config (`zeta.jsonc`) shape:
 //!
 //!   {
-//!     "model": "example/model",
+//!     "model": "openai/gpt-4.1",
 //!     "provider": {
-//!       "example": { "options": { "baseURL": "…", "apiKey": "{env:MODEL_API_KEY}" } }
+//!       "openai": { "options": { "baseURL": "…", "apiKey": "{env:OPENAI_API_KEY}" } }
 //!     }
 //!   }
 //!
@@ -23,7 +23,7 @@ const max_file = 1024 * 1024;
 pub const ProviderOptions = struct {
     baseURL: ?[]const u8 = null,
     apiKey: ?[]const u8 = null,
-    /// Ask a provider to send the session id as a prompt-cache key.
+    /// Send the session id as a prompt-cache key (OpenAI-compatible APIs).
     setCacheKey: ?bool = null,
 };
 

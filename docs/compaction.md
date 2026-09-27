@@ -4,7 +4,7 @@ A long session eventually outgrows the model's context window. Compaction replac
 
 ## When it happens
 
-- **Automatically**, before a model request, when the estimated context is larger than the model's context window minus `reserveTokens` (at most a quarter of the window, so a small model is not compacted on every request). The window comes from the provider or from `provider.<id>.models.<model>.limit.context` in config; without a known window there is no automatic compaction.
+- **Automatically**, before a model request, when the estimated context is larger than the model's context window minus `reserveTokens` (at most a quarter of the window, so a small model is not compacted on every request). The window comes from the model catalog, or from `provider.<id>.models.<model>.limit.context` in config for custom endpoints; without a known window there is no automatic compaction.
 - **When the model rejects a request as too long** for its context (recognized from the service's error, before any of the reply arrived): the request is not logged, the history is compacted (a short one all but its newest message), and the request is rebuilt and sent once more. If that is rejected too, or the compaction fails, the error is logged and the run ends. This needs `enabled` and counts toward the failure limit below. A bare `413` without that wording is not treated as too long.
 - **On request**, via `POST /sessions/:id/compact` with `{"instructions"?: "…"}`. The request waits in the inbox like a prompt and runs in order; it asks the model for a summary and does not send a reply of its own. A short history is still summarized, all but its newest message.
 

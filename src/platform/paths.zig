@@ -6,10 +6,12 @@ const builtin = @import("builtin");
 pub const Paths = struct {
     /// `$XDG_CONFIG_HOME/zeta`: user config.
     config: []const u8,
-    /// `$XDG_DATA_HOME/zeta`: sessions.
+    /// `$XDG_DATA_HOME/zeta`: sessions, credentials.
     data: []const u8,
     /// `$XDG_STATE_HOME/zeta`: server log.
     state: []const u8,
+    /// `$XDG_CACHE_HOME/zeta`: models.dev catalog.
+    cache: []const u8,
     /// `$XDG_RUNTIME_DIR/zeta`, else the state dir: discovery file.
     runtime: []const u8,
 
@@ -26,6 +28,7 @@ pub const Paths = struct {
             .config = try dir(arena, env, "XDG_CONFIG_HOME", home, ".config"),
             .data = try dir(arena, env, "XDG_DATA_HOME", home, ".local/share"),
             .state = state,
+            .cache = try dir(arena, env, "XDG_CACHE_HOME", home, ".cache"),
             .runtime = if (runtimeBase(env)) |base|
                 try std.fs.path.join(arena, &.{ base, "zeta" })
             else
@@ -64,6 +67,7 @@ test "defaults under HOME" {
     try std.testing.expectEqualStrings("/h/.config/zeta", p.config);
     try std.testing.expectEqualStrings("/h/.local/share/zeta", p.data);
     try std.testing.expectEqualStrings("/h/.local/state/zeta", p.state);
+    try std.testing.expectEqualStrings("/h/.cache/zeta", p.cache);
     try std.testing.expectEqualStrings("/h/.local/state/zeta", p.runtime);
 }
 

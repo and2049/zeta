@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const core = @import("core");
 const plugin = @import("plugin");
+const builtins = @import("builtins");
 const platform = @import("platform");
 const server = @import("server");
 
@@ -60,8 +61,16 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
     }
 
     // Deinitialized after the runtime has joined every run.
+    var transports: builtins.Transports = .init(gpa, io);
+    defer transports.deinit();
     var registry: plugin.Registry = .init(gpa, io);
     defer registry.deinit();
+    try builtins.register(&registry, &transports);
+
+    const catalog = try builtins.models.Catalog.init(gpa, io, .{ .cache_dir = paths.cache, .keep = builtins.providers.catalog_ids });
+    defer catalog.deinit();
+    var providers: builtins.providers.Context = .{ .env = env, .catalog = catalog, .data_dir = paths.data };
+    try builtins.providers.register(&providers, &registry);
     const sessions_dir = try std.fs.path.join(arena, &.{ paths.data, "sessions" });
     var bus: core.Bus = .init(gpa, io);
     defer bus.deinit();
@@ -75,6 +84,7 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
 
     var srv = try server.Server.listen(gpa, io, &runtime, .{
         .version = build_options.version,
+        .data_dir = paths.data,
         .hostname = options.hostname,
     });
     defer srv.deinit();

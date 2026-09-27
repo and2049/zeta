@@ -82,7 +82,7 @@ pub const Sink = struct {
 pub const Options = struct {
     baseURL: ?[]const u8 = null,
     apiKey: ?[]const u8 = null,
-    /// Optional account identifier supplied by provider authentication.
+    /// ChatGPT account claim for the Codex Responses transport (OAuth only).
     account_id: ?[]const u8 = null,
     authentication: ?Authentication = null,
     /// Capability resolved from catalog/config; unknown models are text-only.
@@ -93,7 +93,9 @@ pub const Options = struct {
     /// The model's output limit in tokens; 0 when unknown (the transport
     /// picks its own default where the API needs one).
     max_output: u64 = 0,
-    /// Ask the transport to send `Request.session_id` as a prompt-cache key.
+    /// Send `Request.session_id` as a prompt-cache key where the transport
+    /// needs it spelled out (OpenAI-compatible endpoints ignore it unless
+    /// set; some reject unknown fields).
     cache_key: bool = false,
     /// The model reasons (catalog `reasoning`); only then is a thinking
     /// level sent.
@@ -209,7 +211,7 @@ pub const Provider = struct {
     models: ?*const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, query: Query) anyerror![]const std.json.Value = null,
 };
 
-/// A transport ("api") for model requests.
+/// A transport ("api"), e.g. OpenAI-compatible chat completions.
 /// Stateless: config comes in with each call.
 pub const Api = struct {
     id: []const u8,

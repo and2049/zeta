@@ -1,8 +1,23 @@
 const std = @import("std");
 const core = @import("core");
+const platform = @import("platform");
 const Server = @import("Server.zig");
 const Ctx = @import("conn.zig").Ctx;
 const query = @import("query.zig");
+
+pub fn credentials(s: *Server, c: *Ctx, provider: ?[]const u8) !void {
+    if (provider) |id| {
+        if (c.method != .PUT) return c.fail(.method_not_allowed, "method not allowed");
+        const body = try c.bodyJson(struct { type: []const u8 = "api", key: []const u8 });
+        if (!std.mem.eql(u8, body.type, "api")) return c.fail(.bad_request, "only API keys are supported");
+        try platform.credentials.putApiKey(c.arena, c.io, s.data_dir, id, body.key);
+        return c.json(.ok, .{ .id = id, .type = "api" });
+    }
+    if (c.method != .GET) return c.fail(.method_not_allowed, "method not allowed");
+    var listing = try platform.credentials.list(c.arena, c.io, s.data_dir);
+    defer listing.deinit();
+    return c.json(.ok, .{ .providers = listing.items });
+}
 
 pub fn stop(s: *Server, c: *Ctx) !void {
     if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");

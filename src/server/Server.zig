@@ -13,6 +13,7 @@ const auth = @import("auth.zig");
 const conn = @import("conn.zig");
 const conn_limits = @import("limits.zig");
 const routes = @import("routes.zig");
+const AuthFlow = @import("auth_flow.zig");
 
 pub const first_port = 4096;
 // Rapid restarts leave ports in TIME_WAIT because listeners deliberately do
@@ -30,7 +31,9 @@ listener: Io.net.Server,
 port: u16,
 event_listeners: std.atomic.Value(u32) = .init(0),
 stop_requested: Io.Event = .unset,
+data_dir: []const u8,
 config_mutex: Io.Mutex = .init,
+auth_flow: AuthFlow = .{},
 limits: conn_limits.Limits,
 url_buf: [64]u8 = undefined,
 url_len: usize = 0,
@@ -39,6 +42,7 @@ pub const Options = struct {
     version: []const u8,
     hostname: []const u8 = "127.0.0.1",
     first_port: u16 = first_port,
+    data_dir: []const u8,
     limits: conn_limits.Limits = .{},
 };
 
@@ -64,6 +68,7 @@ pub fn listen(gpa: Allocator, io: Io, runtime: *core.Runtime, options: Options) 
         .password = try auth.generatePassword(io),
         .listener = listener,
         .port = port,
+        .data_dir = options.data_dir,
         .limits = options.limits,
     };
     // A wildcard bind is reached locally through loopback.
@@ -73,6 +78,7 @@ pub fn listen(gpa: Allocator, io: Io, runtime: *core.Runtime, options: Options) 
 }
 
 pub fn deinit(s: *Server) void {
+    s.auth_flow.deinit(s.io);
     s.listener.deinit(s.io);
 }
 

@@ -18,9 +18,11 @@ zeta serve
 
 ```jsonc
 {
-  "model": "example/model",
+  "model": "openai/gpt-4.1",
   "provider": {
-    "example": { "options": { "baseURL": "https://example.invalid/v1", "apiKey": "{env:MODEL_API_KEY}" } }
+    "openai": { "options": { "apiKey": "{env:OPENAI_API_KEY}" } },
+    // any OpenAI-compatible endpoint
+    "local": { "options": { "baseURL": "http://127.0.0.1:8080/v1" } }
   }
 }
 ```
@@ -34,7 +36,7 @@ zeta serve [--hostname 0.0.0.0]      # run the server in the foreground
 ## Docs
 
 - [Overview](docs/README.md)
-- [Configuration](docs/configuration.md)
+- [Configuration](docs/configuration.md), [providers](docs/providers.md), [credentials](docs/credentials.md)
 - [compaction](docs/compaction.md)
 - [HTTP API and events](docs/protocol.md)
 

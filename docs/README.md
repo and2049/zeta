@@ -5,7 +5,8 @@ zeta is a Zig coding agent with a localhost server. Build with Zig 0.16.0: `zig 
 Documentation for configuring and using zeta:
 
 - [Sessions](sessions.md): storage, listing, export, undo, moving and forking
-- [Configuration](configuration.md); copyable [config example](examples/zeta.jsonc)
+- [Configuration](configuration.md) and [credentials](credentials.md); copyable [config example](examples/zeta.jsonc)
+- [Supported providers and authentication](providers.md)
 - [Compaction](compaction.md): how long sessions are summarized to fit the context window, and manual compaction
 - [HTTP protocol](protocol.md)
 

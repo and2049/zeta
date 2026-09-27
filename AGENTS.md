@@ -16,7 +16,8 @@ Rules for anyone (human or agent) changing zeta.
 - Module boundaries are enforced by `build.zig` imports:
   - `proto`, `platform`: std only.
   - `plugin`: proto.
-  - `core`: proto, plugin. Never server.
+  - `core`: proto, plugin. Never builtins or server.
+  - `builtins`: plugin, core, platform, proto.
   - `server`: proto, plugin, core, platform.
 - Files stay under about 400 lines.
 - Explicit allocators and documented ownership. Prefer arenas scoped to a turn or request.
@@ -25,5 +26,5 @@ Rules for anyone (human or agent) changing zeta.
 ## Commits
 
 - Title: `type(scope): summary`. Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`.
-- Scopes: `core`, `plugin`, `proto`, `platform`, `server`, `build`, `docs`, `e2e`.
+- Scopes: `core`, `plugin`, `proto`, `platform`, `builtins`, `server`, `build`, `docs`, `e2e`.
 - Body: plain, at most 4 lines.

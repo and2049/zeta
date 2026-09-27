@@ -4,18 +4,21 @@ Put `zeta.jsonc` at `~/.config/zeta/` or `<project>/.zeta/`. JSONC permits comme
 
 ```jsonc
 {
-  "model": "example/model",
+  "model": "openai/gpt-4.1",
   "provider": {
-    "example": { "options": { "baseURL": "https://example.invalid/v1", "apiKey": "{env:MODEL_API_KEY}" } }
+    "openai": { "options": { "apiKey": "{env:OPENAI_API_KEY}" } },
+    "local": { "options": { "baseURL": "http://127.0.0.1:8080/v1" } }
   },
   "tool_timeout_ms": 120000
 }
 ```
 
-Provider `options` accepts `baseURL`, `apiKey` and `setCacheKey` (whether a provider sends the session id as a prompt-cache key); `models` accepts model metadata overrides, plus `thinkingLevels` and `thinking` per model. The top-level `thinking` key is the default thinking level. Strings support `{env:VAR}` and `{file:path}`; relative files resolve next to the config file. No providers are registered by default; provider plugins can supply model routes.
+API-key providers use OpenAI-compatible chat completions. Saved OpenAI ChatGPT OAuth credentials select the Codex Responses transport instead. The models.dev catalog supplies endpoints and environment-variable names and is cached at `$XDG_CACHE_HOME/zeta/models.json`; catalog presence does not imply API support. Provider `options` accepts `baseURL`, `apiKey` and `setCacheKey` (send the session id as `prompt_cache_key`; on by default for `openai` only, since some compatible servers reject unknown fields); `models` accepts model metadata overrides, plus `thinkingLevels` and `thinking` per model. The top-level `thinking` key is the default thinking level (see [providers](providers.md#thinking-level)). Strings support `{env:VAR}` and `{file:path}`; relative files resolve next to the config file. See [providers and authentication](providers.md) for credential precedence.
 
-Provider model overrides go under `provider.<id>.models`. `GET /models` lists
-models supplied by registered provider plugins.
+Only officially supported provider metadata is retained from models.dev.
+Custom endpoints declare their models under `provider.<id>.models`; these
+definitions are not matched automatically against the public catalog. Explicit
+custom `baseURL` endpoints may omit an API key and still appear in `GET /models`.
 
 Precedence (low to high): defaults, user config, project config, user profile, project profile, environment. Objects merge by key; scalars and arrays replace. Profiles are `profiles/<name>.jsonc` under the user config or project `.zeta/` directory. Session creation selects profiles and models; environment overrides can be supplied there.
 

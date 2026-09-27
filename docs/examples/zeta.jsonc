@@ -1,8 +1,8 @@
 {
   // Copy into ~/.config/zeta/zeta.jsonc or <project>/.zeta/zeta.jsonc.
-  "model": "example/model",
+  "model": "openai/gpt-4.1",
   "provider": {
-    "example": { "options": { "baseURL": "https://example.invalid/v1", "apiKey": "{env:MODEL_API_KEY}" } }
+    "openai": { "options": { "apiKey": "{env:OPENAI_API_KEY}" } }
   },
   "permission": [
     { "action": "external_directory", "pattern": "*", "effect": "ask" }
