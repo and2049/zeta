@@ -40,11 +40,8 @@ async function eventually<T>(read: () => Promise<T>, ready: (value: T) => boolea
   throw new Error("timed out waiting for daemon state");
 }
 async function boot() {
-  await sb.start();
   llm.reply({ text: "warm" });
-  const id = await create();
-  await prompt(id, "warm");
-  await eventually(() => snapshot(id), (s) => !s.running && s.messages.length >= 2);
+  expect((await sb.zeta(["run", "warm"])).code).toBe(0);
 }
 
 /** A subscription established before the snapshot; queued frames are retained across HTTP reads. */
@@ -148,7 +145,7 @@ describe("durable sessions and history", () => {
     expect((await json(`/sessions?location=${encodeURIComponent(sb.root)}`)).map((s: any) => s.id)).not.toContain(id);
     expect(other).not.toBe(id);
 
-    await sb.stop();
+    expect((await sb.zeta(["server", "stop"])).code).toBe(0);
     expect(existsSync(sb.discoveryPath)).toBe(false);
     // Starting the daemon again must not send an old prompt to the provider.
     const server = Bun.spawn([zetaBin, "serve"], { cwd: sb.project, env: sb.env, stdout: "pipe", stderr: "pipe" });
@@ -182,7 +179,7 @@ describe("durable sessions and history", () => {
     const locationDir = join(sessionsDir, readdirSync(sessionsDir)[0]);
     const path = join(locationDir, `${corrupt}.jsonl`);
     expect(readFileSync(path, "utf8")).toContain(`"id":"${corrupt}"`);
-    await sb.stop();
+    expect((await sb.zeta(["server", "stop"])).code).toBe(0);
     const broken = readFileSync(path, "utf8") + '{"type":"message","message":{}}\n';
     writeFileSync(path, broken);
     const server = Bun.spawn([zetaBin, "serve"], { cwd: sb.project, env: sb.env, stdout: "pipe", stderr: "pipe" });
@@ -251,9 +248,7 @@ describe("administration", () => {
     expect(listing).toEqual({ providers: [{ id: "fake", type: "api" }] });
     expect(JSON.stringify(listing)).not.toContain(key);
     llm.reply({ text: "stored" });
-    const stored = await create();
-    await prompt(stored, "stored key");
-    await eventually(() => snapshot(stored), (s) => !s.running && s.messages.length >= 2);
+    expect((await sb.zeta(["run", "stored key"])).code).toBe(0);
     expect(llm.headers.at(-1)?.get("authorization")).toBe(`Bearer ${key}`);
     const config = await json(`/config?location=${encodeURIComponent(sb.project)}`);
     expect(config).toHaveProperty("config");
@@ -261,9 +256,7 @@ describe("administration", () => {
     expect(JSON.stringify(config)).not.toContain(key);
     await json("/config", "PATCH", { target: "user", patch: { provider: { fake: { options: { apiKey: "explicit-phase3-secret" } } } } });
     llm.reply({ text: "explicit" });
-    const explicit = await create();
-    await prompt(explicit, "explicit key");
-    await eventually(() => snapshot(explicit), (s) => !s.running && s.messages.length >= 2);
+    expect((await sb.zeta(["run", "explicit key"])).code).toBe(0);
     expect(llm.headers.at(-1)?.get("authorization")).toBe("Bearer explicit-phase3-secret");
     const redacted = await json(`/config?location=${encodeURIComponent(sb.project)}`);
     expect(redacted.config.provider.fake.options.apiKey).toBe("[REDACTED]");
@@ -311,11 +304,41 @@ describe("administration", () => {
     expect((await sb.api("/config", "PATCH", { target: "project", location, patch: { theme: "dark" } })).status).toBe(400);
   });
 
-  test("HTTP reload reports no failures when nothing is loaded from disk", async () => {
+  test("CLI auth login accepts piped key; stop is graceful and never autospawns", async () => {
+    const notRunning = await sb.zeta(["server", "stop"]);
+    expect(notRunning.code).toBe(0);
+    expect(existsSync(sb.discoveryPath)).toBe(false);
+    const secret = "piped-phase3-secret";
+    const proc = Bun.spawn([zetaBin, "auth", "login", "fake"], {
+      cwd: sb.project, env: sb.env, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    });
+    proc.stdin.write(`${secret}\n`);
+    proc.stdin.end();
+    const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    expect(code).toBe(0);
+    expect(stdout + stderr).not.toContain(secret);
+    await boot();
+    expect((await json("/credentials")).providers).toContainEqual({ id: "fake", type: "api" });
+    const pid = sb.discovery().pid;
+    expect((await sb.zeta(["server", "stop"])).code).toBe(0);
+    expect(existsSync(sb.discoveryPath)).toBe(false);
+    expect((await sb.zeta(["server", "stop"])).code).toBe(0);
+    expect(existsSync(sb.discoveryPath)).toBe(false);
+    expect(pid).toBeGreaterThan(0);
+  });
+
+  test("reload never starts a server and reports no failures when nothing is loaded from disk", async () => {
+    const idle = await sb.zeta(["reload"]);
+    expect(idle.code).toBe(0);
+    expect(idle.stdout).toContain("server is not running");
+    expect(existsSync(sb.discoveryPath)).toBe(false);
     await boot();
     expect(await json("/registry/reload", "POST", { location: sb.project })).toEqual({ failures: [] });
     expect(await json("/registry/reload", "POST", {})).toEqual({ failures: [] });
     expect((await sb.api("/registry/reload")).status).toBe(405);
+    const reloaded = await sb.zeta(["reload"]);
+    expect(reloaded.code).toBe(0);
+    expect(reloaded.stdout).toContain("reloaded");
   });
 
 });

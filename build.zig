@@ -17,6 +17,7 @@ const modules = [_]ModuleSpec{
     .{ .name = "core", .deps = &.{ "proto", "plugin" } },
     .{ .name = "builtins", .deps = &.{ "proto", "plugin", "core", "platform" } },
     .{ .name = "server", .deps = &.{ "proto", "plugin", "core", "platform" } },
+    .{ .name = "client", .deps = &.{ "proto", "platform" } },
 };
 
 pub fn build(b: *std.Build) void {

@@ -66,7 +66,7 @@ pub fn restore(rt: *Runtime) !RestoreReport {
             }
             const session = Session.loadAtPath(rt.gpa, rt.io, path, id, location.?) catch |err| {
                 if (err == error.WouldBlock) {
-                    // Served by another zeta server.
+                    // Served by another zeta server (a standalone one).
                     std.log.info("session {s} is open in another server; not loaded", .{id});
                     report.skipped += 1;
                     continue;

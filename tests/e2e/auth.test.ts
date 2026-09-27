@@ -11,7 +11,8 @@ beforeEach(async () => {
   sb = new Sandbox();
   llm = new FakeOpenAI();
   sb.writeConfig({ model: "fake/base", provider: { fake: { options: { baseURL: llm.baseURL } } } });
-  await sb.start();
+  llm.reply({ text: "ready" });
+  expect((await sb.zeta(["run", "warm"])).code).toBe(0);
 });
 afterEach(async () => {
   await sb.cleanup();
@@ -115,5 +116,5 @@ test("a new browser flow replaces a pending one; status/cancel retain no secrets
   expect((await sb.api(`/auth/openai/status?id=${id}`)).status).toBe(404);
   // Shutdown cancels and joins the pending browser listener, without waiting
   // for its ten-minute expiry.
-  await sb.stop();
+  expect((await sb.zeta(["server", "stop"])).code).toBe(0);
 });

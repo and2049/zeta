@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { FakeOpenAI } from "./fake-openai";
-import { Sandbox } from "./harness";
+import { Sandbox, jsonEvents } from "./harness";
 
 let sb: Sandbox;
 let llm: FakeOpenAI;
@@ -22,10 +22,9 @@ async function messages(id: string): Promise<Array<{ id: string; role: string; c
 
 test("fork copies a session up to a message, with tool results, and both go on separately", async () => {
   llm.reply({ calls: [{ id: "r", name: "missing_tool", args: {} }] }, { text: "first reply" });
-  await sb.start();
-  const source = (await (await sb.api("/sessions", "POST", { location: sb.project })).json()).id;
-  await sb.api(`/sessions/${source}/prompt`, "POST", { text: "start" });
-  for (let i = 0; i < 100 && (await messages(source)).length < 4; i++) await Bun.sleep(20);
+  const first = await sb.zeta(["run", "--json", "start"]);
+  expect(first.code).toBe(0);
+  const source = jsonEvents(first.stdout)[0].session;
   const history = await messages(source);
   expect(history.map((m) => m.role)).toEqual(["user", "assistant", "tool_result", "assistant"]);
 

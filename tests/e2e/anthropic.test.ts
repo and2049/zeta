@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Sandbox } from "./harness";
+import { Sandbox, jsonEvents } from "./harness";
 
 // A scripted Anthropic Messages server: each request pops the next list of
 // SSE events. Title requests get a fixed title.
@@ -68,25 +68,14 @@ afterEach(async () => {
   llm.server.stop(true);
 });
 
-async function prompt(text: string): Promise<string> {
-  await sb.start();
-  const session = (await (await sb.api("/sessions", "POST", { location: sb.project })).json()).id;
-  await sb.api(`/sessions/${session}/prompt`, "POST", { text });
-  for (let i = 0; i < 200; i++) {
-    const state = await (await sb.api(`/sessions/${session}`)).json();
-    if (!state.running && state.messages.length >= 2) return session;
-    await Bun.sleep(20);
-  }
-  throw new Error("timed out waiting for reply");
-}
-
 test("a run with a tool call goes through the Messages API", async () => {
   llm.script.push(
     reply([text(0, "Checking."), toolUse(1, "toolu_1", "missing_tool", {})], "tool_use"),
     reply([text(0, "It is missing.")], "end_turn"),
   );
-  const session = await prompt("look at missing.txt");
-  expect(JSON.stringify((await (await sb.api(`/sessions/${session}/messages`)).json()).messages)).toContain("It is missing.");
+  const run = await sb.zeta(["run", "--json", "look at missing.txt"]);
+  expect(run.code).toBe(0);
+  expect(run.stdout).toContain("It is missing.");
 
   expect(llm.requests.length).toBe(2);
   expect(llm.headers[0].get("x-api-key")).toBe("sk-ant-e2e");
@@ -111,6 +100,7 @@ test("a run with a tool call goes through the Messages API", async () => {
   expect(results.content[0].is_error).toBe(true);
   expect(results.content.at(-1).cache_control).toEqual({ type: "ephemeral" });
 
+  const session = jsonEvents(run.stdout)[0].session;
   const log = (await (await sb.api(`/sessions/${session}/messages`)).json()).messages;
   const last = log.at(-1);
   expect(last.stopReason).toBe("stop");
@@ -125,7 +115,7 @@ test("an HTTP error from the API is reported with its message", async () => {
     fetch: () => Response.json({ type: "error", error: { type: "invalid_request_error", message: "max_tokens: too large" } }, { status: 400 }),
   });
   sb.writeConfig({ model: "anthropic/claude-test", provider: { anthropic: { options: { baseURL: `http://127.0.0.1:${failing.port}/v1`, apiKey: "sk-ant-e2e" } } } });
-  const session = await prompt("hi");
+  const run = await sb.zeta(["run", "--json", "hi"]);
   failing.stop(true);
-  expect(JSON.stringify((await (await sb.api(`/sessions/${session}/messages`)).json()).messages)).toContain("HTTP 400: max_tokens: too large");
+  expect(run.stdout + run.stderr).toContain("HTTP 400: max_tokens: too large");
 });

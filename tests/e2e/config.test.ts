@@ -3,7 +3,6 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeOpenAI } from "./fake-openai";
 import { Sandbox } from "./harness";
-import { waitFor } from "./wait-for";
 
 let sb: Sandbox;
 let llm: FakeOpenAI;
@@ -28,30 +27,21 @@ describe("session configuration", () => {
     writeFileSync(join(global, "review.jsonc"), JSON.stringify({ model: "fake/global-profile" }));
     writeFileSync(join(project, "review.jsonc"), JSON.stringify({ model: "fake/project-profile" }));
     llm.reply({ text: "project" });
-    await sb.start();
-    const session = (await (await sb.api("/sessions", "POST", { location: sb.project, profile: "review" })).json()).id;
-    await sb.api(`/sessions/${session}/prompt`, "POST", { text: "hi" });
-    await waitFor(async () => !(await (await sb.api(`/sessions/${session}`)).json()).running);
+    const result = await sb.zeta(["run", "--profile", "review", "hi"]);
+    expect(result.code).toBe(0);
     expect(llm.requests[0].model).toBe("project-profile");
     expect(llm.requests[0].messages[0].role).toBe("system");
-    expect((await (await sb.api(`/sessions/${session}/messages`)).json()).messages.at(-1).content[0].text).toBe("project");
+    expect(result.stdout).toBe("project\n");
   });
 
-  test("session model and environment selectors override config on a reused server", async () => {
-    await sb.start();
+  test("CLI --model and caller ZETA_MODEL override config on a reused daemon", async () => {
     llm.reply({ text: "first" }, { text: "second" }, { text: "third" });
+    expect((await sb.zeta(["run", "initial"])).code).toBe(0);
     const pid = sb.discovery().pid;
-    for (const [text, selectors] of [
-      ["initial", {}],
-      ["selected", { model: "fake/selected" }],
-      ["environment", { model: "fake/selected", environment: { model: "fake/caller-env" } }],
-    ] as const) {
-      const session = (await (await sb.api("/sessions", "POST", { location: sb.project, ...selectors })).json()).id;
-      await sb.api(`/sessions/${session}/prompt`, "POST", { text });
-      await waitFor(async () => !(await (await sb.api(`/sessions/${session}`)).json()).running);
-    }
+    expect((await sb.zeta(["run", "--model", "fake/cli", "cli"])).code).toBe(0);
+    expect((await sb.zeta(["run", "--model", "fake/cli", "env"], { ZETA_MODEL: "fake/caller-env" })).code).toBe(0);
     expect(sb.discovery().pid).toBe(pid);
-    expect(llm.requests.map((request) => request.model)).toEqual(["base", "selected", "caller-env"]);
+    expect(llm.requests.map((request) => request.model)).toEqual(["base", "cli", "caller-env"]);
   });
 
 });

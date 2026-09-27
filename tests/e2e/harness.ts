@@ -3,7 +3,6 @@
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { waitFor } from "./wait-for";
 
 export const zetaBin = process.env.ZETA_BIN ?? resolve(import.meta.dir, "../../zig-out/bin/zeta");
 
@@ -27,7 +26,6 @@ export function jsonEvents(stdout: string): AgentEvent[] {
 }
 
 export class Sandbox {
-  server?: ReturnType<typeof Bun.spawn>;
   root = mkdtempSync(join(tmpdir(), "zeta-e2e-"));
   home = join(this.root, "home");
   project = join(this.root, "project");
@@ -88,21 +86,6 @@ export class Sandbox {
     return { stdout, stderr, code };
   }
 
-  async start(hostname?: string) {
-    this.server = Bun.spawn([zetaBin, "serve", ...(hostname ? ["--hostname", hostname] : [])], {
-      cwd: this.project, env: this.env, stdout: "ignore", stderr: "ignore",
-    });
-    await waitFor(() => existsSync(this.discoveryPath), "server discovery");
-  }
-
-  async stop() {
-    if (existsSync(this.discoveryPath)) await this.api("/server/stop", "POST", {});
-    if (this.server) {
-      await this.server.exited;
-      this.server = undefined;
-    }
-  }
-
   /** Authenticated request to the daemon discovered in this sandbox. */
   api(path: string, method = "GET", body?: unknown): Promise<Response> {
     const { url, password } = this.discovery();
@@ -117,7 +100,7 @@ export class Sandbox {
     });
   }
 
-  /** Stops the server and removes the sandbox. */
+  /** Stops the auto-started server and removes the sandbox. */
   async cleanup() {
     if (existsSync(this.discoveryPath)) {
       const { pid } = this.discovery();
@@ -126,7 +109,6 @@ export class Sandbox {
       } catch {}
       for (let i = 0; i < 50 && existsSync(this.discoveryPath); i++) await Bun.sleep(10);
     }
-    if (this.server) await this.server.exited;
     rmSync(this.root, { recursive: true, force: true });
   }
 }

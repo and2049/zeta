@@ -15,7 +15,7 @@ pub const Paths = struct {
     /// `$XDG_RUNTIME_DIR/zeta`, else the state dir: discovery file.
     runtime: []const u8,
 
-    /// Where a server can write its output.
+    /// Where an auto-spawned server writes its output.
     pub fn serverLog(p: Paths, arena: std.mem.Allocator) ![]u8 {
         return std.fs.path.join(arena, &.{ p.state, "server.log" });
     }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { FakeOpenAI } from "./fake-openai";
-import { Sandbox } from "./harness";
+import { Sandbox, jsonEvents } from "./harness";
 
 let sb: Sandbox;
 let llm: FakeOpenAI;
@@ -20,20 +20,14 @@ afterEach(async () => {
   llm.stop();
 });
 
-async function start(text: string): Promise<string> {
-  await sb.start();
-  const session = (await (await sb.api("/sessions", "POST", { location: sb.project })).json()).id;
-  await sb.api(`/sessions/${session}/prompt`, "POST", { text });
-  for (let i = 0; i < 200 && (await (await sb.api(`/sessions/${session}`)).json()).messages.length < 2; i++) await Bun.sleep(20);
-  return session;
-}
-
 const system = (request: { messages: Array<{ role: string; content: unknown }> }) => String(request.messages[0]?.content ?? "");
 
 describe("compaction", () => {
   test("a history past the window is summarized before the request", async () => {
     llm.reply({ text: "first answer" });
-    const session = await start("x".repeat(4000));
+    const first = await sb.zeta(["run", "--json", "x".repeat(4000)]);
+    expect(first.code).toBe(0);
+    const session = jsonEvents(first.stdout)[0].session;
     llm.reply({ text: "## Goal\nSUMMARY TEXT" }, { text: "second answer" });
     const sent = await sb.api(`/sessions/${session}/prompt`, "POST", { text: "y".repeat(8000) });
     expect(sent.status).toBe(200);
@@ -52,7 +46,8 @@ describe("compaction", () => {
 
   test("POST /compact queues a manual compaction with instructions", async () => {
     llm.reply({ text: "one" });
-    const session = await start("tell me about the build");
+    const first = await sb.zeta(["run", "--json", "tell me about the build"]);
+    const session = jsonEvents(first.stdout)[0].session;
     llm.reply({ text: "## Goal\nMANUAL SUMMARY" });
     const queued = await sb.api(`/sessions/${session}/compact`, "POST", { instructions: "keep build commands" });
     expect(queued.status).toBe(200);
@@ -70,7 +65,9 @@ describe("compaction", () => {
       provider: { fake: { options: { baseURL: llm.baseURL, setCacheKey: true }, models: { small: { name: "Small" } } } },
     });
     llm.reply({ text: "first answer" });
-    const session = await start("tell me about the build");
+    const first = await sb.zeta(["run", "--json", "tell me about the build"]);
+    expect(first.code).toBe(0);
+    const session = jsonEvents(first.stdout)[0].session;
     llm.reply(
       { status: 400, body: JSON.stringify({ error: { message: "This model's maximum context length is 2000 tokens.", code: "context_length_exceeded" } }) },
       { text: "## Goal\nOVERFLOW SUMMARY" },

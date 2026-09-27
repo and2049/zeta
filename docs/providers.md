@@ -87,6 +87,7 @@ use that gateway's provider ID and credentials.
 
 ## Authentication
 
+`zeta auth login <provider>` reads an API key from a hidden prompt or stdin.
 `PUT /credentials/:provider` saves an API key over HTTP; configured custom
 providers are supported as well. Keys are never submitted as conversation messages.
 
@@ -119,7 +120,7 @@ endpoints; ChatGPT OAuth uses the Codex endpoint.
 
 Credentials are saved in `$XDG_DATA_HOME/zeta/credentials.json` (normally
 `~/.local/share/zeta/credentials.json`) with mode 0600. Saving a new login for
-a provider replaces its previous saved credential. OAuth flows are available
+a provider replaces its previous saved credential. `zeta auth login <provider>` accepts API keys; OAuth flows are available
 through `POST /auth/:provider/start` (see [protocol](protocol.md)).
 
 ## Errors and retries
@@ -146,7 +147,7 @@ errorMessage}` for the message that failed.
 
 How much a model reasons is one scale for every provider: `off`, `minimal`,
 `low`, `medium`, `high`, `xhigh`. The level for a run is the session's
-selection (`PATCH /sessions/:id` with
+selection (`zeta run --thinking <level>`, or `PATCH /sessions/:id` with
 `{"thinking": "high"}`; `auto` drops it), else the model's `thinking` in
 config, else the top-level `thinking` config key. Nothing chosen sends no
 setting, so the service's default applies.

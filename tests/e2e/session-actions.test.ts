@@ -16,11 +16,8 @@ async function json(path: string, method = "GET", body?: unknown): Promise<any> 
   return response.json();
 }
 async function boot() {
-  await sb.start();
   llm.reply({ text: "warm" });
-  const warm = (await json("/sessions", "POST", { location: sb.project })).id;
-  await json(`/sessions/${warm}/prompt`, "POST", { text: "warm" });
-  await waitFor(async () => !(await json(`/sessions/${warm}`)).running);
+  expect((await sb.zeta(["run", "warm"])).code).toBe(0);
   return (await json("/sessions", "POST", { location: sb.project })).id as string;
 }
 
@@ -33,8 +30,9 @@ test("session model and title changes survive restart and affect the next run", 
   llm.reply({ text: "saved" });
   await json(`/sessions/${id}/prompt`, "POST", { text: "persist renamed" });
   await waitFor(async () => !(await json(`/sessions/${id}`)).running);
-  await sb.stop();
-  await sb.start();
+  expect((await sb.zeta(["server", "stop"])).code).toBe(0);
+  llm.reply({ text: "restarted" });
+  expect((await sb.zeta(["run", "restart"])).code).toBe(0);
   expect((await json(`/sessions/${id}`)).info.title).toBe("Renamed session");
   llm.reply({ text: "alternate response" });
   await json(`/sessions/${id}/prompt`, "POST", { text: "continue renamed" });

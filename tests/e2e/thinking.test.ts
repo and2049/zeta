@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { FakeOpenAI } from "./fake-openai";
-import { Sandbox } from "./harness";
+import { Sandbox, jsonEvents } from "./harness";
 
 let sb: Sandbox;
 let llm: FakeOpenAI;
@@ -29,13 +29,11 @@ describe("thinking level", () => {
   test("the session's level wins over the config's, fitted to the model", async () => {
     sb.writeConfig({ model: "fake/thinker", thinking: "low", provider: { fake: { options: { baseURL: llm.baseURL }, models } } });
     llm.reply({ text: "one" });
-    await sb.start();
-    const session = (await (await sb.api("/sessions", "POST", { location: sb.project })).json()).id;
-    await sb.api(`/sessions/${session}`, "PATCH", { thinking: "medium" });
-    await sb.api(`/sessions/${session}/prompt`, "POST", { text: "hi" });
-    await waitFor(1);
+    const first = await sb.zeta(["run", "--json", "--thinking", "medium", "hi"]);
+    expect(first.code).toBe(0);
     // medium is not among the model's levels: the next one up.
     expect(llm.requests[0].reasoning_effort).toBe("high");
+    const session = jsonEvents(first.stdout)[0].session;
 
     const patched = await sb.api(`/sessions/${session}`, "PATCH", { thinking: "auto" });
     expect(patched.status).toBe(200);
@@ -52,10 +50,8 @@ describe("thinking level", () => {
   test("a model that does not reason gets no setting", async () => {
     sb.writeConfig({ model: "fake/plain", thinking: "high", provider: { fake: { options: { baseURL: llm.baseURL }, models } } });
     llm.reply({ text: "ok" });
-    await sb.start();
-    const session = (await (await sb.api("/sessions", "POST", { location: sb.project, thinking: "high" })).json()).id;
-    await sb.api(`/sessions/${session}/prompt`, "POST", { text: "hi" });
-    await waitFor(1);
+    const r = await sb.zeta(["run", "--thinking", "high", "hi"]);
+    expect(r.code).toBe(0);
     expect("reasoning_effort" in llm.requests[0]).toBe(false);
   });
 });

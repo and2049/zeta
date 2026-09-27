@@ -2,14 +2,14 @@
 
 A small coding agent in Zig, with no dependencies beyond the standard library.
 
-- One foreground server per user; HTTP clients talk to it over localhost HTTP + SSE.
+- One background server per user; `zeta run` and scripts talk to it over localhost HTTP + SSE.
 - Everything in the server is a plugin: tools, providers, hooks.
 - Status: early development.
 
 ## Quick start
 
 ```sh
-zeta serve
+zeta run "explain this repo"
 ```
 
 ## Configure
@@ -30,7 +30,19 @@ zeta serve
 ## Commands
 
 ```sh
+zeta run --json "…"                  # the session's events as JSONL
+zeta run --profile local --model local/my-model "…"
+zeta run --continue "…"              # continue the project's latest session (-c)
+zeta run --session ses_… "…"         # continue a given session
+zeta run --standalone "…"            # a private server that ends with the run
+git diff | zeta run "review" @notes.md   # stdin and files join the prompt
 zeta serve [--hostname 0.0.0.0]      # run the server in the foreground
+zeta server stop
+zeta sessions [--all] [text]         # list or search; `sessions export <id>` prints JSONL
+zeta undo                            # undo the latest reply's file changes
+zeta usage [--all | --session <id>]  # tokens and cost
+zeta auth login openai
+zeta reload                          # reload plugins for this project
 ```
 
 ## Docs
