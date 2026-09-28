@@ -9,7 +9,8 @@ Documentation for configuring and using zeta:
 - [Sessions](sessions.md): storage, listing, export, undo, moving and forking
 - [Configuration](configuration.md) and [credentials](credentials.md); copyable [config example](examples/zeta.jsonc)
 - [Supported providers and authentication](providers.md)
-- [Tools](tools.md) and [permissions](permissions.md)
+- [Tools](tools.md), [permissions](permissions.md), and [skills](skills.md)
+- [Prompt templates](commands.md): slash commands from `prompts/*.md`
 - [Compaction](compaction.md): how long sessions are summarized to fit the context window, and manual compaction
 - [HTTP protocol](protocol.md)
 - [Generated tool/config reference](generated/reference.md) (`zig build docs` writes the complete documentation tree to `zig-out/docs`)

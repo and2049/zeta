@@ -44,4 +44,21 @@ describe("session configuration", () => {
     expect(llm.requests.map((request) => request.model)).toEqual(["base", "cli", "caller-env"]);
   });
 
+  test("AGENTS.md instructions from global config and project ancestors reach the provider in order", async () => {
+    const global = join(sb.env.XDG_CONFIG_HOME, "zeta");
+    mkdirSync(global, { recursive: true });
+    writeFileSync(join(global, "AGENTS.md"), "Global agent sentinel");
+    writeFileSync(join(sb.root, "AGENTS.md"), "Ancestor agent sentinel");
+    writeFileSync(join(sb.project, "AGENTS.md"), "Project agent sentinel");
+    llm.reply({ text: "followed" });
+    const result = await sb.zeta(["run", "instructions"]);
+    expect(result.code).toBe(0);
+    const system: string = llm.requests[0].messages[0].content;
+    expect(system).toContain("Global agent sentinel");
+    expect(system).toContain("Ancestor agent sentinel");
+    expect(system).toContain("Project agent sentinel");
+    expect(system.indexOf("Global agent sentinel")).toBeLessThan(system.indexOf("Ancestor agent sentinel"));
+    expect(system.indexOf("Ancestor agent sentinel")).toBeLessThan(system.indexOf("Project agent sentinel"));
+    expect(sb.sessionMessages().map((message) => message.role)).toEqual(["user", "assistant"]);
+  });
 });

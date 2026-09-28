@@ -14,6 +14,7 @@ const Inbox = @import("inbox.zig").Inbox;
 const Delivery = @import("inbox.zig").Delivery;
 const Loop = @import("loop.zig").Loop;
 const config = @import("config.zig");
+const prompt_mod = @import("prompt.zig");
 const permissions = @import("permissions.zig");
 const types = proto.event.types;
 
@@ -59,6 +60,7 @@ ids: proto.id.Generator = .{},
 mutex: Io.Mutex = .init,
 sessions: std.StringHashMapUnmanaged(*Entry) = .empty,
 broker: ?permissions.Broker = null,
+resources: ?Resources = null,
 
 pub const Entry = struct {
     session: *Session,
@@ -88,6 +90,27 @@ pub const Options = struct {
     config_dir: []const u8,
     sessions_dir: []const u8,
     state_dir: ?[]const u8 = null,
+    resources: ?Resources = null,
+};
+
+pub const Prepared = struct {
+    /// Plugin id the listing shows for these tools.
+    plugin: []const u8 = "resources",
+    /// Additional tools and prompt sections, borrowed from the run arena.
+    tools: []const plugin.tool.Tool = &.{},
+    sections: []const prompt_mod.Section = &.{},
+};
+
+/// Composition-root seam for per-location skills/resources.
+pub const Resources = struct {
+    ctx: ?*anyopaque = null,
+    prepare: *const fn (?*anyopaque, Allocator, Io, []const u8, config.Config, []const plugin.tool.Tool) anyerror!Prepared,
+    /// Extra listing entries (an object, e.g. `skills`) for the registry
+    /// listing; wholly owned by the given arena.
+    inspect: ?*const fn (?*anyopaque, Allocator, Io, config.Config, []const u8) anyerror!std.json.Value = null,
+    /// Prompt-template commands for a location, read fresh on each call;
+    /// wholly owned by the given arena.
+    commands: ?*const fn (?*anyopaque, Allocator, Io, []const u8) anyerror!@import("commands.zig").Listing = null,
 };
 
 pub const init = @import("runtime_create.zig").init;
@@ -140,6 +163,7 @@ pub const removeInboxItem = @import("runtime_actions.zig").removeInboxItem;
 pub const removeInboxItemOwned = @import("runtime_actions.zig").removeInboxItemOwned;
 pub const Update = @import("runtime_actions.zig").Update;
 pub const requestTitle = @import("runtime_title.zig").requestTitle;
+pub const command = @import("commands.zig").run;
 
 /// Queues a compaction of the session's history (after anything already
 /// waiting), with optional instructions for the summary. Returns its inbox id.
@@ -340,6 +364,7 @@ test {
     _ = @import("runtime_route.zig");
     _ = @import("runtime_view.zig");
     _ = @import("inspect.zig");
+    _ = @import("commands.zig");
     _ = @import("compaction.zig");
     _ = @import("artifacts.zig");
     _ = @import("compaction_test.zig");

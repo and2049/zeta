@@ -43,4 +43,7 @@ pub fn register(r: *plugin.Registry, inspector: *tool_inspect.Inspector, transpo
         @import("tool_webfetch.zig").tool,
     }) |tool| try r.addTool(try r.addPlugin(.{ .id = tool.name }), tool);
     try r.addTool(try r.addPlugin(.{ .id = "zeta_inspect" }), tool_inspect.tool(inspector));
+    // Skills are loaded per run beside the registry (see resources.zig);
+    // the plugin entry names them in listings.
+    _ = try r.addPlugin(.{ .id = "skills" });
 }

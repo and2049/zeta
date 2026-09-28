@@ -18,6 +18,7 @@ pub fn init(gpa: Allocator, io: std.Io, bus: *@import("bus.zig").Bus, registry: 
         .config_dir = options.config_dir,
         .sessions_dir = options.sessions_dir,
         .state_dir = options.state_dir,
+        .resources = options.resources,
     };
 }
 

@@ -4,7 +4,7 @@ const version = "0.0.0";
 
 /// One entry per `src/<name>/root.zig` module. `deps` is the full set of
 /// modules it may `@import`; anything else fails to compile. This is how the
-/// layering rules are enforced.
+/// layering rules in AGENTS.md are enforced.
 const ModuleSpec = struct {
     name: []const u8,
     deps: []const []const u8,

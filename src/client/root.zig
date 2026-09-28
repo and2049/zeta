@@ -11,6 +11,7 @@ pub const sessions_cli = @import("sessions_cli.zig");
 pub const admin = @import("admin.zig");
 pub const session_api = @import("session_api.zig");
 pub const files = @import("files.zig");
+pub const commands = @import("commands.zig");
 pub const auth = @import("auth.zig");
 pub const standalone = @import("standalone.zig");
 pub const state = @import("state.zig");

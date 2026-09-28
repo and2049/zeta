@@ -1,5 +1,6 @@
 const std = @import("std");
 const core = @import("core");
+const proto = @import("proto");
 const platform = @import("platform");
 const Server = @import("Server.zig");
 const Ctx = @import("conn.zig").Ctx;
@@ -53,6 +54,22 @@ pub fn read(s: *Server, c: *Ctx, kind: []const u8) !void {
         return c.json(.ok, .{ .providers = try core.runtime_route.models(view, c.arena, c.io, cfg) });
     }
     return c.json(.ok, try core.inspect.registry(s.runtime, c.arena, ctx.location, cfg));
+}
+
+/// `?location=` or `?session=` → `{"commands": [{name, description,
+/// argumentHint?, source}]}`, sorted by name.
+pub fn commands(s: *Server, c: *Ctx) !void {
+    if (c.method != .GET) return c.fail(.method_not_allowed, "method not allowed");
+    const ctx = try context(s, c);
+    const listing = try core.commands.list(s.runtime, c.arena, ctx.location);
+    const out = try c.arena.alloc(proto.commands.Info, listing.commands.len);
+    for (listing.commands, out) |command, *info| info.* = .{
+        .name = command.name,
+        .description = command.description,
+        .argumentHint = command.argument_hint,
+        .source = command.source,
+    };
+    return c.json(.ok, .{ .commands = out });
 }
 
 /// `{"location"?: "/abs/dir"}` → `{"failures": [{plugin, message}]}`.

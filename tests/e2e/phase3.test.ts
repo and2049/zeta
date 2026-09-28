@@ -329,6 +329,7 @@ describe("administration", () => {
     const registry = await json(`/registry?session=${id}`);
     const tool = (name: string) => registry.tools.find((t: any) => t.name === name);
     expect(tool("read")).toMatchObject({ plugin: "read", permission: { target: "path", arg: "path" } });
+    expect(tool("skill")).toMatchObject({ plugin: "skills", permission: { target: "value", arg: "name" } });
     expect(registry.plugins).toContainEqual({ id: "openai", layer: "builtin", source: "builtin" });
     expect(registry.providers.map((p: any) => p.id)).toEqual(["openai", "anthropic", "deepseek", "zai", "zhipuai", "openrouter", "*"]);
     expect(registry.prompt_sections.slice(0, 2)).toEqual(["base", "environment"]);

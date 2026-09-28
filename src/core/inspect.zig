@@ -9,12 +9,14 @@ const plugin_config = @import("plugin_config.zig");
 const Allocator = std.mem.Allocator;
 const Value = std.json.Value;
 
-pub const Section = enum { summary, plugins, tools, hooks, providers, config, diagnostics };
+pub const Section = enum { summary, plugins, tools, hooks, providers, commands, config, diagnostics };
 
 /// Everything `/registry` returns: tools, prompt sections, hooks, providers,
-/// apis, plugins and diagnostics.
+/// apis, plugins, commands and diagnostics, plus what the resource loaders
+/// list (skills).
 pub fn registry(rt: *Runtime, arena: Allocator, location: []const u8, cfg: config.Config) !Value {
-    var result: Value = .{ .object = .empty };
+    var result: Value = if (rt.resources) |loader| if (loader.inspect) |read| try read(loader.ctx, arena, rt.io, cfg, location) else .{ .object = .empty } else .{ .object = .empty };
+    if (result != .object) return error.InvalidInspection;
     const run = try rt.runView(arena, location, cfg);
     const view = run.registry;
     var tools: std.ArrayList(Value) = .empty;
@@ -47,10 +49,15 @@ pub fn registry(rt: *Runtime, arena: Allocator, location: []const u8, cfg: confi
     try result.object.put(arena, "providers", .{ .array = providers.toManaged(arena) });
     try result.object.put(arena, "apis", try asValue(arena, apis.items));
     try result.object.put(arena, "plugins", .{ .array = plugins.toManaged(arena) });
+    const listing = try @import("commands.zig").list(rt, arena, location);
+    var commands: std.ArrayList(Value) = .empty;
+    for (listing.commands) |c| try commands.append(arena, try asValue(arena, .{ .name = c.name, .description = c.description, .argument_hint = c.argument_hint, .source = c.source, .path = c.path }));
+    try result.object.put(arena, "commands", .{ .array = commands.toManaged(arena) });
     var statuses = try rt.registry.loaders.statuses(rt.io, arena, location);
     for (statuses.keys(), statuses.values()) |key, value| try result.object.put(arena, key, value);
     statuses.deinit(arena);
-    try result.object.put(arena, "diagnostics", try asValue(arena, run.diagnostics));
+    const diagnostics = try std.mem.concat(arena, []const u8, &.{ run.diagnostics, listing.diagnostics });
+    try result.object.put(arena, "diagnostics", try asValue(arena, diagnostics));
     return result;
 }
 
@@ -90,10 +97,23 @@ pub fn section(rt: *Runtime, arena: Allocator, location: []const u8, cfg: config
         .tools => &.{ "tools", "prompt_sections" },
         .hooks => &.{"hooks"},
         .providers => &.{ "providers", "apis" },
+        .commands => &.{"commands"},
         .diagnostics => &.{"diagnostics"},
     };
     for (keys) |key| if (all.object.get(key)) |value| try result.put(arena, key, value);
+    // Resource-loader listings (e.g. skills) belong with the plugins.
+    if (which == .plugins) {
+        var it = all.object.iterator();
+        while (it.next()) |entry| if (!known(entry.key_ptr.*)) try result.put(arena, entry.key_ptr.*, entry.value_ptr.*);
+    }
     return .{ .object = result };
+}
+
+fn known(key: []const u8) bool {
+    for ([_][]const u8{ "tools", "prompt_sections", "hooks", "providers", "apis", "plugins", "commands", "diagnostics" }) |k| {
+        if (std.mem.eql(u8, k, key)) return true;
+    }
+    return false;
 }
 
 pub fn asValue(arena: Allocator, value: anytype) !Value {
@@ -112,6 +132,12 @@ test "sections select from the run's listing and the summary counts it" {
         fn run(_: ?*anyopaque, _: Allocator, _: std.Io, _: []const u8, _: Value, _: plugin.tool.ProgressSink) anyerror!plugin.tool.Result {
             return .{ .text = "" };
         }
+        fn listing(_: ?*anyopaque, arena: Allocator, _: std.Io, _: config.Config, _: []const u8) anyerror!Value {
+            return asValue(arena, .{ .skills = &[_][]const u8{"demo"} });
+        }
+        fn prepare(_: ?*anyopaque, _: Allocator, _: std.Io, _: []const u8, _: config.Config, _: []const plugin.tool.Tool) anyerror!Runtime.Prepared {
+            return .{};
+        }
     };
     var reg: plugin.Registry = .init(a, io);
     defer reg.deinit();
@@ -121,7 +147,7 @@ test "sections select from the run's listing and the summary counts it" {
     defer bus.deinit();
     var env = std.process.Environ.Map.init(a);
     defer env.deinit();
-    var rt = Runtime.init(a, io, &bus, &reg, &env, .{ .config_dir = dir, .sessions_dir = dir });
+    var rt = Runtime.init(a, io, &bus, &reg, &env, .{ .config_dir = dir, .sessions_dir = dir, .resources = .{ .prepare = Stub.prepare, .inspect = Stub.listing } });
     defer rt.deinit();
     var arena_state = std.heap.ArenaAllocator.init(a);
     defer arena_state.deinit();
@@ -130,6 +156,7 @@ test "sections select from the run's listing and the summary counts it" {
     const summary = try section(&rt, arena, dir, .{}, .summary);
     const counts = summary.object.get("counts").?.object;
     try std.testing.expectEqual(@as(i64, 1), counts.get("tools").?.integer);
+    try std.testing.expectEqual(@as(i64, 1), counts.get("skills").?.integer);
     const tools = try section(&rt, arena, dir, .{}, .tools);
     try std.testing.expectEqualStrings("echo", tools.object.get("tools").?.array.items[0].object.get("name").?.string);
     const enabled = try section(&rt, arena, dir, .{ .inspect_tool = true }, .tools);
@@ -137,7 +164,7 @@ test "sections select from the run's listing and the summary counts it" {
     try std.testing.expectEqualStrings("zeta_inspect", enabled.object.get("tools").?.array.items[1].object.get("name").?.string);
     try std.testing.expect(tools.object.get("hooks") == null);
     const plugins = try section(&rt, arena, dir, .{}, .plugins);
-    try std.testing.expectEqual(@as(usize, 2), plugins.object.get("plugins").?.array.items.len);
+    try std.testing.expect(plugins.object.get("skills") != null);
     const cfg = try section(&rt, arena, dir, .{}, .config);
     try std.testing.expect(cfg.object.get("config") != null and cfg.object.get("diagnostics") != null);
 }

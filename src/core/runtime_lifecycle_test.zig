@@ -327,6 +327,7 @@ test "prompt runs a worker that uses the configured model and key" {
     const base = base_buf[0..try tmp.dir.realPath(io, &base_buf)];
     try tmp.dir.createDirPath(io, "cfg");
     try tmp.dir.createDirPath(io, "project");
+    try tmp.dir.writeFile(io, .{ .sub_path = "project/AGENTS.md", .data = "Project guidance" });
     try tmp.dir.writeFile(io, .{ .sub_path = "cfg/zeta.jsonc", .data =
         \\{ "model": "my-llm/big", "provider": { "my-llm": { "options": { "baseURL": "http://x", "apiKey": "key" } } } }
     });
@@ -340,10 +341,12 @@ test "prompt runs a worker that uses the configured model and key" {
         var seen_key: [16]u8 = undefined;
         var seen_model: [16]u8 = undefined;
         var saw_tool = false;
+        var saw_guidance = false;
         fn stream(_: ?*anyopaque, _: Allocator, _: Io, o: plugin.provider.Options, r: plugin.provider.Request, sink: plugin.provider.Sink) anyerror!void {
             @memcpy(seen_key[0..3], o.apiKey.?[0..3]);
             @memcpy(seen_model[0..3], r.model[0..3]);
             saw_tool = r.tools.len == 1 and std.mem.eql(u8, r.tools[0].name, "test_tool");
+            saw_guidance = std.mem.indexOf(u8, r.system, "Project guidance") != null;
             try sink.emit(.{ .text_delta = "ok" });
             try sink.emit(.{ .done = .stop });
         }
@@ -379,5 +382,5 @@ test "prompt runs a worker that uses the configured model and key" {
     }
     try std.testing.expectEqualStrings("key", Fake.seen_key[0..3]);
     try std.testing.expectEqualStrings("alt", Fake.seen_model[0..3]);
-    try std.testing.expect(Fake.saw_tool);
+    try std.testing.expect(Fake.saw_tool and Fake.saw_guidance);
 }

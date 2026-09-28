@@ -13,7 +13,7 @@ pub const Inspector = struct {
 pub fn tool(ctx: *Inspector) plugin.tool.Tool {
     return .{
         .name = "zeta_inspect",
-        .description = "Inspect zeta's live state for this project: plugins, tools, hooks, providers, the effective config with the source of each value, and diagnostics. Call without arguments for a summary, then ask for one section.",
+        .description = "Inspect zeta's live state for this project: plugins and skills, tools, hooks, providers, commands, the effective config with the source of each value, and diagnostics. Call without arguments for a summary, then ask for one section.",
         .input_schema = comptime schema(),
         .side_effect = .read,
         .ctx = ctx,

@@ -19,7 +19,7 @@ pub const Target = enum {
     command,
     /// A URL, used as written.
     url,
-    /// Any other string argument, used as written (e.g. a resource name).
+    /// Any other string argument, used as written (e.g. a skill name).
     value,
 };
 

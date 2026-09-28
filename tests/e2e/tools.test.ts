@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeOpenAI, type ToolCall } from "./fake-openai";
 import { Sandbox, jsonEvents, type AgentEvent } from "./harness";
@@ -188,6 +188,19 @@ describe("tool continuation and log", () => {
     }
   });
 
+  test("skill metadata is lazy; its SKILL.md body is loaded only on request", async () => {
+    const dir = join(sb.project, ".agents", "skills", "test-skill");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: test-skill\ndescription: Testing skill discovery\n---\n\nSecret skill instructions.\n");
+    llm.reply({ calls: [call("skill-1", "skill", { name: "test-skill" })] }, { text: "Loaded." });
+    const { code, events } = await run();
+    expect(code).toBe(0);
+    expect(llm.requests[0].messages[0].content).toContain("test-skill");
+    expect(llm.requests[0].messages[0].content).not.toContain("Secret skill instructions");
+    expect(assertToolEvents(events, "skill-1", "skill", false)).toContain("Secret skill instructions");
+    expect(llm.requests[1].messages.at(-1).content).toContain("Secret skill instructions");
+  });
+
   test("zeta_inspect returns a summary and one section of the live registry", async () => {
     sb.writeConfig({ model: "fake/test-model", provider: { fake: { options: { baseURL: llm.baseURL } } }, inspect_tool: true });
     llm.reply(
@@ -198,7 +211,7 @@ describe("tool continuation and log", () => {
     expect(code).toBe(0);
     expect(llm.requests[0].tools.some((tool: { function: { name: string } }) => tool.function.name === "zeta_inspect")).toBe(true);
     const summary = JSON.parse(assertToolEvents(events, "inspect-1", "zeta_inspect", false));
-    expect(summary.counts.tools).toBeGreaterThanOrEqual(6);
+    expect(summary.counts.tools).toBeGreaterThanOrEqual(7);
     expect(summary.sections).toContain("hooks");
     const config = JSON.parse(assertToolEvents(events, "inspect-2", "zeta_inspect", false));
     expect(config.config.model).toBe("fake/test-model");

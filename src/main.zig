@@ -201,13 +201,19 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
     defer catalog.deinit();
     var providers: builtins.providers.Context = .{ .env = env, .catalog = catalog, .data_dir = paths.data };
     try builtins.providers.register(&providers, &registry);
+    const home = env.get("HOME") orelse return error.NoHomeDir;
     const sessions_dir = try std.fs.path.join(arena, &.{ paths.data, "sessions" });
+    var resources: builtins.resources.Resources = .{
+        .home = home,
+        .config_dir = paths.config,
+    };
     var bus: core.Bus = .init(gpa, io);
     defer bus.deinit();
     var runtime: core.Runtime = .init(gpa, io, &bus, &registry, env, .{
         .config_dir = paths.config,
         .sessions_dir = sessions_dir,
         .state_dir = paths.state,
+        .resources = resources.resources(),
     });
     defer runtime.deinit();
     inspector.runtime = &runtime;

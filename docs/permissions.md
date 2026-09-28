@@ -12,7 +12,7 @@ Add ordered rules to `zeta.jsonc`; the last matching rule wins. Without a matchi
 }
 ```
 
-Effects are `allow`, `deny`, and `ask`. In actions and patterns, `*` matches any run of characters (including `/`) and `?` exactly one character; a trailing ` *` may also match nothing, so `git *` covers both `git` and `git status`. The action is the tool name unless the tool declares another. What the pattern matches is declared by each tool as a permission target naming one of its arguments: read/write/edit match canonical absolute paths, bash a command, webfetch a URL (checked again for every redirect target). A tool that declares no target is matched with the pattern `*`. Access to a file outside the project additionally checks `external_directory`. `GET /registry` shows each tool's declared permission.
+Effects are `allow`, `deny`, and `ask`. In actions and patterns, `*` matches any run of characters (including `/`) and `?` exactly one character; a trailing ` *` may also match nothing, so `git *` covers both `git` and `git status`. The action is the tool name unless the tool declares another. What the pattern matches is declared by each tool as a permission target naming one of its arguments: read/write/edit match canonical absolute paths, bash a command, webfetch a URL (checked again for every redirect target), and skill a skill name. A tool that declares no target is matched with the pattern `*`. Access to a file outside the project additionally checks `external_directory`. `GET /registry` shows each tool's declared permission.
 
 ## Examples
 

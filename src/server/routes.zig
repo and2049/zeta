@@ -1,6 +1,7 @@
 const std = @import("std");
 const proto = @import("proto");
 const core = @import("core");
+const plugin = @import("plugin");
 const Server = @import("Server.zig");
 const conn = @import("conn.zig");
 const Ctx = conn.Ctx;
@@ -27,6 +28,7 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
     if ((seg.len == 1 or seg.len == 2) and std.mem.eql(u8, seg[0], "credentials")) return admin.credentials(s, c, if (seg.len == 2) seg[1] else null);
     if (seg.len == 1) {
         if (std.mem.eql(u8, seg[0], "config") and c.method == .PATCH) return admin.patchConfig(s, c);
+        if (std.mem.eql(u8, seg[0], "commands")) return admin.commands(s, c);
         for ([_][]const u8{ "config", "models", "registry" }) |kind| {
             if (std.mem.eql(u8, seg[0], kind)) return admin.read(s, c, kind);
         }
@@ -105,6 +107,10 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
         if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
         return prompt(s, c, seg[1]);
     }
+    if (seg.len == 3 and std.mem.eql(u8, seg[0], "sessions") and std.mem.eql(u8, seg[2], "command")) {
+        if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
+        return command(s, c, seg[1]);
+    }
     if (seg.len == 3 and std.mem.eql(u8, seg[0], "permissions") and std.mem.eql(u8, seg[2], "reply")) {
         if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
         return permissionReply(s, c, seg[1]);
@@ -154,6 +160,27 @@ fn prompt(s: *Server, c: *Ctx, session_id: []const u8) !void {
     });
     const inbox_id = s.runtime.promptWithImages(session_id, body.text, body.delivery, body.images) catch |err| switch (err) {
         error.SessionNotFound => return c.fail(.not_found, "session not found"),
+        else => |e| return e,
+    };
+    try c.json(.ok, .{ .inboxId = inbox_id.slice() });
+}
+
+/// `{"name": "review", "arguments": "…", "delivery", "images"}` →
+/// `{"inboxId": "msg_…"}`. Expands the prompt template `name` for the
+/// session's location and admits it like `/prompt`.
+fn command(s: *Server, c: *Ctx, session_id: []const u8) !void {
+    const body = try c.bodyJson(struct {
+        name: []const u8,
+        arguments: []const u8 = "",
+        delivery: core.inbox.Delivery = .queue,
+        images: []const proto.attachment.Image = &.{},
+    });
+    var problem: plugin.command.Problem = .{};
+    const inbox_id = s.runtime.command(session_id, body.name, body.arguments, body.delivery, body.images, &problem) catch |err| switch (err) {
+        error.SessionNotFound => return c.fail(.not_found, "session not found"),
+        error.CommandNotFound => return c.fail(.not_found, "command not found"),
+        // What the command's source said went wrong.
+        error.CommandFailed => return c.fail(.bad_gateway, problem.text()),
         else => |e| return e,
     };
     try c.json(.ok, .{ .inboxId = inbox_id.slice() });

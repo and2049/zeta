@@ -44,7 +44,7 @@ test "prepared tools reject duplicates and unsupported schema before advertising
             unreachable;
         }
     }.execute;
-    const valid: plugin.tool.Tool = .{ .name = "additional", .description = "", .input_schema = "{}", .execute = stub };
+    const valid: plugin.tool.Tool = .{ .name = "skill", .description = "", .input_schema = "{}", .execute = stub };
     const unsupported: plugin.tool.Tool = .{ .name = "other", .description = "", .input_schema = "{\"$ref\":\"#/x\"}", .execute = stub };
     try std.testing.expectError(error.DuplicateRegistration, validatePrepared(state.allocator(), &.{valid}, &.{valid}));
     try std.testing.expectError(error.DuplicateRegistration, validatePrepared(state.allocator(), &.{}, &.{ valid, valid }));
