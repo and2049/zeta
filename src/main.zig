@@ -194,7 +194,8 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
     defer transports.deinit();
     var registry: plugin.Registry = .init(gpa, io);
     defer registry.deinit();
-    try builtins.register(&registry, &transports);
+    var inspector: builtins.tool_inspect.Inspector = .{};
+    try builtins.register(&registry, &inspector, &transports);
 
     const catalog = try builtins.models.Catalog.init(gpa, io, .{ .cache_dir = paths.cache, .keep = builtins.providers.catalog_ids });
     defer catalog.deinit();
@@ -209,6 +210,7 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
         .state_dir = paths.state,
     });
     defer runtime.deinit();
+    inspector.runtime = &runtime;
     // A standalone server leaves the sessions to the shared one.
     if (options.parent == null) _ = try runtime.restore();
 

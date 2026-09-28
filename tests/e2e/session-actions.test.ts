@@ -77,7 +77,7 @@ test("aborting a tool-call stream leaves every call paired for the next run", as
   const id = await boot();
   let release!: () => void;
   const paused = new Promise<void>((resolve) => { release = resolve; });
-  llm.reply({ calls: [{ id: "orphan", name: "missing_tool", args: {} }], afterFirstChunk: paused });
+  llm.reply({ calls: [{ id: "orphan", name: "bash", args: { command: "echo never" } }], afterFirstChunk: paused });
   try {
     await json(`/sessions/${id}/prompt`, "POST", { text: "start a tool" });
     await waitFor(async () => (await json(`/sessions/${id}`)).inflight?.content?.some((c: any) => c.type === "toolCall"), "streamed tool call");
@@ -121,6 +121,20 @@ test("images are capability checked and persist as provider-compatible content",
   expect(replayed).not.toContain(image.data);
   const last = (await json(`/sessions/${id}`)).messages.at(-1);
   expect(last.stopReason).toBe("stop");
+});
+
+test("edit changes remain structured after snapshot hydration", async () => {
+  const id = await boot();
+  llm.reply({ calls: [{ id: "write", name: "write", args: { path: "diff.txt", content: "old text\n" } }] });
+  llm.reply({ calls: [{ id: "edit", name: "edit", args: { path: "diff.txt", edits: [{ oldText: "old text", newText: "new text" }] } }] });
+  llm.reply({ text: "edited" });
+  await json(`/sessions/${id}/prompt`, "POST", { text: "write then edit" });
+  await waitFor(async () => !(await json(`/sessions/${id}`)).running);
+  const messages = (await json(`/sessions/${id}`)).messages;
+  const edited = messages.find((m: any) => m.toolCallId === "edit");
+  expect(edited.changes[0].before).toContain("old text");
+  expect(edited.changes[0].after).toContain("new text");
+  expect(edited.changes[0].truncated).toBe(false);
 });
 
 test("generated titles use small_model and preserve manual titles", async () => {

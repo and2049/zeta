@@ -1,4 +1,4 @@
-//! The live listing behind `/registry` and `/config`. It is
+//! The live listing behind `/registry`, `/config` and the inspect tool. It is
 //! built from the same view a run uses, so it shows what a run would see.
 //! Everything returned lives in `arena`.
 const std = @import("std");
@@ -116,6 +116,7 @@ test "sections select from the run's listing and the summary counts it" {
     var reg: plugin.Registry = .init(a, io);
     defer reg.deinit();
     try reg.addTool(try reg.addPlugin(.{ .id = "echo" }), .{ .name = "echo", .description = "", .input_schema = "{}", .execute = Stub.run });
+    try reg.addTool(try reg.addPlugin(.{ .id = "zeta_inspect" }), .{ .name = "zeta_inspect", .description = "", .input_schema = "{}", .execute = Stub.run });
     var bus: @import("bus.zig").Bus = .init(a, io);
     defer bus.deinit();
     var env = std.process.Environ.Map.init(a);
@@ -131,9 +132,12 @@ test "sections select from the run's listing and the summary counts it" {
     try std.testing.expectEqual(@as(i64, 1), counts.get("tools").?.integer);
     const tools = try section(&rt, arena, dir, .{}, .tools);
     try std.testing.expectEqualStrings("echo", tools.object.get("tools").?.array.items[0].object.get("name").?.string);
+    const enabled = try section(&rt, arena, dir, .{ .inspect_tool = true }, .tools);
+    try std.testing.expectEqual(@as(usize, 2), enabled.object.get("tools").?.array.items.len);
+    try std.testing.expectEqualStrings("zeta_inspect", enabled.object.get("tools").?.array.items[1].object.get("name").?.string);
     try std.testing.expect(tools.object.get("hooks") == null);
     const plugins = try section(&rt, arena, dir, .{}, .plugins);
-    try std.testing.expectEqual(@as(usize, 1), plugins.object.get("plugins").?.array.items.len);
+    try std.testing.expectEqual(@as(usize, 2), plugins.object.get("plugins").?.array.items.len);
     const cfg = try section(&rt, arena, dir, .{}, .config);
     try std.testing.expect(cfg.object.get("config") != null and cfg.object.get("diagnostics") != null);
 }

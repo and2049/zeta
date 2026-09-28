@@ -237,6 +237,42 @@ describe("durable sessions and history", () => {
     expect((await sb.api(`/sessions/${a}`, "DELETE")).status).toBe(404);
   });
 
+  test("abort resolves a pending permission and refuses a late approval", async () => {
+    sb.writeConfig({
+      model: "fake/base", provider: { fake: { options: { baseURL: llm.baseURL } } },
+      tool_timeout_ms: 5000,
+      permission: [{ action: "write", pattern: "*", effect: "ask" }],
+    });
+    await boot();
+    const feed = await sb.api("/event");
+    expect(feed.status).toBe(200);
+    const reader = feed.body!.getReader();
+    try {
+      const id = await create();
+      llm.reply({ calls: [{ id: "pending-write", name: "write", args: { path: "unapproved.txt", content: "no" } }] });
+      await prompt(id, "write");
+      const pending = await eventually(() => snapshot(id), (s) => s.pendingPermissions.length > 0);
+      const permissionId = pending.pendingPermissions[0].id;
+      expect((await sb.api(`/sessions/${id}/abort`, "POST", {})).status).toBe(200);
+      expect((await snapshot(id)).pendingPermissions).toEqual([]);
+      expect((await sb.api(`/permissions/${permissionId}/reply`, "POST", { reply: "allow_once" })).status).toBe(404);
+      expect(existsSync(join(sb.project, "unapproved.txt"))).toBe(false);
+    } finally {
+      await reader.cancel();
+    }
+  });
+
+  test("abort joins a running bash tool before returning and prevents its delayed side effect", async () => {
+    await boot();
+    const id = await create();
+    llm.reply({ calls: [{ id: "slow-bash", name: "bash", args: { command: "touch started.txt; sleep 2; touch too-late.txt" } }] });
+    await prompt(id, "run a slow command");
+    await eventually(async () => existsSync(join(sb.project, "started.txt")), Boolean);
+    expect((await sb.api(`/sessions/${id}/abort`, "POST", {})).status).toBe(200);
+    expect((await snapshot(id)).running).toBe(false);
+    await Bun.sleep(2200);
+    expect(existsSync(join(sb.project, "too-late.txt"))).toBe(false);
+  });
 });
 
 describe("administration", () => {
@@ -291,7 +327,8 @@ describe("administration", () => {
     expect((await sb.api("/models")).status).toBe(400);
     expect((await sb.api("/registry")).status).toBe(400);
     const registry = await json(`/registry?session=${id}`);
-    expect(registry.tools).toEqual([]);
+    const tool = (name: string) => registry.tools.find((t: any) => t.name === name);
+    expect(tool("read")).toMatchObject({ plugin: "read", permission: { target: "path", arg: "path" } });
     expect(registry.plugins).toContainEqual({ id: "openai", layer: "builtin", source: "builtin" });
     expect(registry.providers.map((p: any) => p.id)).toEqual(["openai", "anthropic", "deepseek", "zai", "zhipuai", "openrouter", "*"]);
     expect(registry.prompt_sections.slice(0, 2)).toEqual(["base", "environment"]);
@@ -341,4 +378,19 @@ describe("administration", () => {
     expect(reloaded.stdout).toContain("reloaded");
   });
 
+  test("server stop joins an active tool before removing discovery", async () => {
+    await boot();
+    const id = await create();
+    llm.reply({ calls: [{ id: "shutdown-bash", name: "bash", args: { command: "touch stopping.txt; sleep 2; touch survived-shutdown.txt" } }] });
+    await prompt(id, "run until shutdown");
+    await eventually(async () => existsSync(join(sb.project, "stopping.txt")), Boolean);
+    expect((await sb.zeta(["server", "stop"])).code).toBe(0);
+    expect(existsSync(sb.discoveryPath)).toBe(false);
+    await Bun.sleep(2200);
+    expect(existsSync(join(sb.project, "survived-shutdown.txt"))).toBe(false);
+    llm.reply({ text: "reopened" });
+    expect((await sb.zeta(["run", "start again"])).code).toBe(0);
+    expect((await snapshot(id)).running).toBe(false);
+    expect(llm.requests.some((r) => r.messages.some((m: any) => m.content === "run until shutdown") && r.messages.some((m: any) => m.role === "tool"))).toBe(false);
+  });
 });

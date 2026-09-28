@@ -1,6 +1,8 @@
-//! Shared built-in provider registration for the runtime.
+//! Shared built-in registration for the runtime and generated reference docs.
+//! Each built-in module is its own plugin in the built-in layer.
 const std = @import("std");
 const plugin = @import("plugin");
+const tool_inspect = @import("tool_inspect.zig");
 const http_pool = @import("http_pool.zig");
 const provider_openai = @import("provider_openai/root.zig");
 const provider_codex = @import("provider_codex/root.zig");
@@ -25,11 +27,20 @@ pub const Transports = struct {
     }
 };
 
-/// `transports` must outlive the registry.
-pub fn register(r: *plugin.Registry, transports: *Transports) !void {
+/// `inspector` and `transports` must outlive the registry; the composition
+/// root points the inspector at the runtime once that exists.
+pub fn register(r: *plugin.Registry, inspector: *tool_inspect.Inspector, transports: *Transports) !void {
     for ([_]plugin.provider.Api{
         provider_openai.api(&transports.openai),
         provider_codex.api(&transports.codex),
         provider_anthropic.api(&transports.anthropic),
     }) |api| try r.addApi(try r.addPlugin(.{ .id = api.id }), api);
+    inline for (.{
+        @import("tool_read.zig").tool,
+        @import("tool_write.zig").tool,
+        @import("tool_edit.zig").tool,
+        @import("tool_bash.zig").tool,
+        @import("tool_webfetch.zig").tool,
+    }) |tool| try r.addTool(try r.addPlugin(.{ .id = tool.name }), tool);
+    try r.addTool(try r.addPlugin(.{ .id = "zeta_inspect" }), tool_inspect.tool(inspector));
 }

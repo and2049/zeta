@@ -69,6 +69,7 @@ pub const Config = struct {
     /// Default thinking level (a level name) for models that reason.
     thinking: ?[]const u8 = null,
     tool_timeout_ms: u64 = 120_000,
+    inspect_tool: bool = false,
     permission: []const PermissionRule = &.{},
     provider: std.json.ArrayHashMap(Provider) = .{},
     /// `plugin.<id>`: each plugin's own config, checked against its schema
@@ -100,13 +101,14 @@ const ParsedConfig = struct {
     small_model: ?[]const u8 = null,
     thinking: ?[]const u8 = null,
     tool_timeout_ms: u64 = 120_000,
+    inspect_tool: bool = false,
     permission: []const PermissionRule = &.{},
     provider: std.json.ArrayHashMap(Provider) = .{},
     plugin: std.json.ArrayHashMap(std.json.Value) = .{},
     compaction: Compaction = .{},
 };
 
-pub const known_keys = [_][]const u8{ "model", "small_model", "thinking", "tool_timeout_ms", "permission", "provider", "plugin", "compaction" };
+pub const known_keys = [_][]const u8{ "model", "small_model", "thinking", "tool_timeout_ms", "inspect_tool", "permission", "provider", "plugin", "compaction" };
 
 pub fn isKnown(key: []const u8) bool {
     for (known_keys) |known| if (std.mem.eql(u8, key, known)) return true;
@@ -137,6 +139,7 @@ pub fn loadWithOptions(
     var merged: std.json.Value = .{ .object = .empty };
     var provenance: std.StringHashMapUnmanaged(Source) = .empty;
     try provenance.put(arena, "tool_timeout_ms", .defaults);
+    try provenance.put(arena, "inspect_tool", .defaults);
     try provenance.put(arena, "permission", .defaults);
     const layers = [_]struct { path: []const u8, source: Source }{
         .{ .path = try std.fs.path.join(arena, &.{ config_dir, file_name }), .source = .user },
@@ -173,7 +176,7 @@ pub fn loadWithOptions(
         if (!isKnown(top)) try stale.append(arena, key.*);
     }
     for (stale.items) |key| _ = provenance.remove(key);
-    return .{ .model = parsed.model, .small_model = parsed.small_model, .thinking = parsed.thinking, .tool_timeout_ms = parsed.tool_timeout_ms, .permission = parsed.permission, .provider = parsed.provider, .plugin = parsed.plugin, .compaction = parsed.compaction, .provenance = provenance, .unknown = unknown.items };
+    return .{ .model = parsed.model, .small_model = parsed.small_model, .thinking = parsed.thinking, .tool_timeout_ms = parsed.tool_timeout_ms, .inspect_tool = parsed.inspect_tool, .permission = parsed.permission, .provider = parsed.provider, .plugin = parsed.plugin, .compaction = parsed.compaction, .provenance = provenance, .unknown = unknown.items };
 }
 
 fn validProfileName(name: []const u8) bool {

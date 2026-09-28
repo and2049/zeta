@@ -5,6 +5,6 @@
     "openai": { "options": { "apiKey": "{env:OPENAI_API_KEY}" } }
   },
   "permission": [
-    { "action": "external_directory", "pattern": "*", "effect": "ask" }
+    { "action": "bash", "pattern": "*", "effect": "ask" }
   ]
 }

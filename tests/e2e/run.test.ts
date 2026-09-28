@@ -116,6 +116,22 @@ describe("zeta run", () => {
     expect(missing.stderr).toContain("nope.txt: not found");
   });
 
+  test("read shows an image to a model that takes images, and a notice to one that does not", async () => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nAAAAABJRU5ErkJggg==";
+    writeFileSync(join(sb.project, "dot.png"), Buffer.from(png, "base64"));
+    sb.writeConfig({ model: "fake/vision", provider: { fake: { options: { baseURL: llm.baseURL }, models: { vision: { name: "Vision", attachment: true, modalities: { input: ["text", "image"] } }, plain: { name: "Plain" } } } } });
+    llm.reply({ calls: [{ id: "r", name: "read", args: { path: "dot.png" } }] }, { text: "a dot" });
+    expect((await sb.zeta(["run", "look at dot.png"])).code).toBe(0);
+    const [, , , tool, attached] = llm.requests[1].messages;
+    expect(tool.content).toContain("Read image");
+    expect(attached.content[1].image_url.url).toBe(`data:image/png;base64,${png}`);
+    llm.reply({ text: "cannot see" });
+    expect((await sb.zeta(["run", "-c", "--model", "fake/plain", "again"])).code).toBe(0);
+    const later = llm.requests[2].messages;
+    expect(JSON.stringify(later)).not.toContain(png);
+    expect(JSON.stringify(later)).toContain("Cannot read image");
+  });
+
   test("zeta usage totals tokens and cost per project, session and model", async () => {
     sb.writeConfig({ model: "fake/priced", provider: { fake: { options: { baseURL: llm.baseURL }, models: { priced: { name: "Priced", cost: { input: 1000, output: 2000 } } } } } });
     llm.reply({ text: "one" }, { text: "two" });
@@ -152,6 +168,32 @@ describe("zeta run", () => {
     expect(exported.slice(1).map((l: { message: { role: string } }) => l.message.role)).toEqual(["user", "assistant"]);
     expect(exported[2].message.content[0].text).toBe("old reply");
     expect((await sb.zeta(["sessions", "export", "ses_nope"])).code).toBe(1);
+  });
+
+  test("zeta undo puts back the latest reply's file changes, not the user's", async () => {
+    writeFileSync(join(sb.project, "a.txt"), "one");
+    llm.reply(
+      { calls: [{ id: "w1", name: "write", args: { path: "a.txt", content: "two" } }, { id: "w2", name: "write", args: { path: "new.txt", content: "x" } }] },
+      { text: "done" },
+    );
+    expect((await sb.zeta(["run", "change things"])).code).toBe(0);
+    expect(readFileSync(join(sb.project, "a.txt"), "utf8")).toBe("two");
+    const undone = await sb.zeta(["undo"]);
+    expect(undone.stdout).toBe("Undid 2 of 2 file changes.\n");
+    expect(readFileSync(join(sb.project, "a.txt"), "utf8")).toBe("one");
+    expect(() => statSync(join(sb.project, "new.txt"))).toThrow();
+    const again = await sb.zeta(["undo"]);
+    expect(again.code).toBe(1);
+    expect(again.stdout).toBe("Nothing to undo.\n");
+
+    // A file the user changed after the reply is left alone.
+    llm.reply({ calls: [{ id: "e1", name: "edit", args: { path: "a.txt", edits: [{ oldText: "one", newText: "three" }] } }] }, { text: "edited" });
+    expect((await sb.zeta(["run", "-c", "edit it"])).code).toBe(0);
+    expect(JSON.stringify(llm.requests[2].messages)).toContain("The user undid the file changes");
+    writeFileSync(join(sb.project, "a.txt"), "mine");
+    const conflict = await sb.zeta(["undo"]);
+    expect(conflict.stdout).toContain("changed since, left as is");
+    expect(readFileSync(join(sb.project, "a.txt"), "utf8")).toBe("mine");
   });
 
   test("--json prints the session's events in loop order", async () => {

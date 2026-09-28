@@ -70,7 +70,7 @@ afterEach(async () => {
 
 test("a run with a tool call goes through the Messages API", async () => {
   llm.script.push(
-    reply([text(0, "Checking."), toolUse(1, "toolu_1", "missing_tool", {})], "tool_use"),
+    reply([text(0, "Checking."), toolUse(1, "toolu_1", "read", { path: "missing.txt" })], "tool_use"),
     reply([text(0, "It is missing.")], "end_turn"),
   );
   const run = await sb.zeta(["run", "--json", "look at missing.txt"]);
@@ -86,14 +86,14 @@ test("a run with a tool call goes through the Messages API", async () => {
   expect(first.stream).toBe(true);
   expect(first.max_tokens).toBe(8192);
   expect(first.system[0].cache_control).toEqual({ type: "ephemeral" });
-  expect(first.tools ?? []).toEqual([]);
+  expect(first.tools.some((t: any) => t.name === "read" && t.input_schema.type === "object")).toBe(true);
 
   // The second request replays the call and carries its result in a user turn.
   const [user, assistant, results] = llm.requests[1].messages;
   expect(user.role).toBe("user");
   expect(assistant.role).toBe("assistant");
   expect(assistant.content.map((b: any) => b.type)).toEqual(["text", "tool_use"]);
-  expect(assistant.content[1]).toEqual({ type: "tool_use", id: "toolu_1", name: "missing_tool", input: {} });
+  expect(assistant.content[1]).toEqual({ type: "tool_use", id: "toolu_1", name: "read", input: { path: "missing.txt" } });
   expect(results.role).toBe("user");
   expect(results.content[0].type).toBe("tool_result");
   expect(results.content[0].tool_use_id).toBe("toolu_1");

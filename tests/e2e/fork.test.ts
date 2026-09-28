@@ -21,7 +21,7 @@ async function messages(id: string): Promise<Array<{ id: string; role: string; c
 }
 
 test("fork copies a session up to a message, with tool results, and both go on separately", async () => {
-  llm.reply({ calls: [{ id: "r", name: "missing_tool", args: {} }] }, { text: "first reply" });
+  llm.reply({ calls: [{ id: "r", name: "read", args: { path: "missing.txt" } }] }, { text: "first reply" });
   const first = await sb.zeta(["run", "--json", "start"]);
   expect(first.code).toBe(0);
   const source = jsonEvents(first.stdout)[0].session;

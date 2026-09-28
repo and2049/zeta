@@ -42,12 +42,38 @@ pub fn build(b: *std.Build) void {
         for (spec.deps) |dep| mods[i].addImport(dep, mods[indexOf(dep)]);
     }
 
-    const docs_step = b.step("docs", "Install documentation under zig-out/docs");
+    // This standalone generator imports live built-in tool definitions and
+    // config types.
+    const generate_mod = b.createModule(.{
+        .root_source_file = b.path("src/builtins/docs_generate.zig"),
+        .target = b.graph.host,
+        .optimize = .Debug,
+        .link_libc = true,
+    });
+    // Host modules cannot reuse target modules when cross-compiling. Keep the
+    // same dependency policy while building the generator for the build host.
+    var host_mods: [modules.len]?*std.Build.Module = @splat(null);
+    for (modules, 0..) |spec, i| {
+        if (i > indexOf("core")) break;
+        host_mods[i] = b.createModule(.{
+            .root_source_file = b.path(b.fmt("src/{s}/root.zig", .{spec.name})),
+            .target = b.graph.host,
+            .optimize = .Debug,
+            .link_libc = true,
+        });
+        host_mods[i].?.addImport("build_options", options_mod);
+        for (spec.deps) |dep| host_mods[i].?.addImport(dep, host_mods[indexOf(dep)].?);
+    }
+    for ([_][]const u8{ "proto", "plugin", "core", "platform" }) |dep| generate_mod.addImport(dep, host_mods[indexOf(dep)].?);
+    const generate = b.addRunArtifact(b.addExecutable(.{ .name = "zeta-docs-generate", .root_module = generate_mod }));
+    const generated = generate.addOutputFileArg("reference.md");
+    const docs_step = b.step("docs", "Generate documentation under zig-out/docs");
     docs_step.dependOn(&b.addInstallDirectory(.{
         .source_dir = b.path("docs"),
         .install_dir = .prefix,
         .install_subdir = "docs",
     }).step);
+    docs_step.dependOn(&b.addInstallFileWithDir(generated, .prefix, "docs/generated/reference.md").step);
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),

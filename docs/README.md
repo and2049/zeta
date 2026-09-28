@@ -9,7 +9,9 @@ Documentation for configuring and using zeta:
 - [Sessions](sessions.md): storage, listing, export, undo, moving and forking
 - [Configuration](configuration.md) and [credentials](credentials.md); copyable [config example](examples/zeta.jsonc)
 - [Supported providers and authentication](providers.md)
+- [Tools](tools.md) and [permissions](permissions.md)
 - [Compaction](compaction.md): how long sessions are summarized to fit the context window, and manual compaction
 - [HTTP protocol](protocol.md)
+- [Generated tool/config reference](generated/reference.md) (`zig build docs` writes the complete documentation tree to `zig-out/docs`)
 
-The repository's top-level README covers the CLI and build commands. `zig build docs` installs the documentation tree to `zig-out/docs`. `GET /registry` shows the live plugins, tools, providers and prompt sections a run gets.
+The repository's top-level README covers the CLI and build commands. `GET /registry` shows the live plugins, tools, providers and prompt sections a run gets. The optional `zeta_inspect` tool provides this view when `inspect_tool` is enabled.

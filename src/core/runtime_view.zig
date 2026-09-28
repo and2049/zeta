@@ -33,10 +33,18 @@ pub fn assemble(rt: *Runtime, arena: Allocator, location: []const u8, cfg: confi
     var diagnostics: std.ArrayList([]const u8) = .empty;
     try diagnostics.appendSlice(arena, report.diagnostics);
     for (registry.problems) |p| try diagnostics.append(arena, try std.fmt.allocPrint(arena, "plugin '{s}': {s}", .{ p.plugin, p.message }));
-    const tools = try registry.toolValues(arena);
+    const registered = try registry.toolValues(arena);
+    var offered: std.ArrayList(plugin.tool.Tool) = .empty;
+    for (registered) |tool| if (cfg.inspect_tool or !isInspect(tool.name)) try offered.append(arena, tool);
+    const tools = offered.items;
     runtime_tools.applyTimeouts(tools, cfg.tool_timeout_ms);
     const sources = try arena.alloc([]const u8, tools.len);
-    for (registry.tools, sources) |entry, *source| source.* = entry.plugin;
+    var index: usize = 0;
+    for (registry.tools) |entry| {
+        if (!cfg.inspect_tool and isInspect(entry.value.name)) continue;
+        sources[index] = entry.plugin;
+        index += 1;
+    }
 
     var sections: std.ArrayList(prompt.Section) = .empty;
     try sections.appendSlice(arena, &.{
@@ -53,4 +61,8 @@ pub fn assemble(rt: *Runtime, arena: Allocator, location: []const u8, cfg: confi
         .diagnostics = diagnostics.items,
         .config_invalid = report.invalid,
     };
+}
+
+fn isInspect(name: []const u8) bool {
+    return std.mem.eql(u8, name, "zeta_inspect");
 }

@@ -4,7 +4,7 @@ A session is one conversation in one project. The server keeps every session of 
 
 ## Storage
 
-Each session is an append-only JSONL log at `$XDG_DATA_HOME/zeta/sessions/<project-hash>/<id>.jsonl` (default `~/.local/share/zeta/sessions/`). Lines are messages, plus `system` lines recording the exact system prompt and tool declarations sent to the model (written again only when they change). Tool output too long for the model, and file backups supplied by tools, are kept beside it in `<id>.artifacts/`.
+Each session is an append-only JSONL log at `$XDG_DATA_HOME/zeta/sessions/<project-hash>/<id>.jsonl` (default `~/.local/share/zeta/sessions/`). Lines are messages, plus `system` lines recording the exact system prompt and tool declarations sent to the model (written again only when they change). Tool output too long for the model, and copies of files changed by `write` and `edit`, are kept beside it in `<id>.artifacts/`.
 
 A new session is not written to disk, or listed, until its first message. On start the server restores every log it finds; a log cut off mid-line keeps its complete lines, and tool calls left without results are recorded as interrupted. Interrupted runs are not resumed. A session open in one server is locked, so a second server (a `zeta run --standalone` one) never loads it at the same time.
 
@@ -26,7 +26,7 @@ Never edit a log while a server has it open. To change a session, use the comman
 | copy into a new session | | `POST /sessions/:id/fork` (optionally up to a message) |
 | delete | | `DELETE /sessions/:id` |
 
-`zeta undo` puts back each file a tool backed up for the reply, unless it changed again since. A move rehomes the session in the new directory's project (its git root) and adds a note to the conversation. A fork keeps the same model selection and gets its own copy of saved tool output. Details and response shapes are in [protocol](protocol.md); see [compaction](compaction.md) for what a summary keeps.
+`zeta undo` puts back each file the reply wrote or edited, unless it changed again since; `bash` changes are not tracked. A move rehomes the session in the new directory's project (its git root) and adds a note to the conversation. A fork keeps the same model selection and gets its own copy of saved tool output. Details and response shapes are in [protocol](protocol.md); see [compaction](compaction.md) for what a summary keeps.
 
 ## Model and thinking level
 
