@@ -1,4 +1,5 @@
-//! Build-only reference generator; shares runtime registration.
+//! Build-only reference generator; shares runtime registration without the
+//! builtins root's dependency on the resulting documentation manifest.
 const std = @import("std");
 const plugin = @import("plugin");
 const core = @import("core");

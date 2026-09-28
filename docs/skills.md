@@ -34,3 +34,5 @@ description: Write release notes from the git log. Use when the user asks for re
 - The `skill` tool returns the body with the skill's directory (`Base directory: …`), so the body can name other files in that directory by relative path; the model reads them with `read`.
 
 Discovery descends at most eight directory levels, opens at most 4096 directories, and keeps at most 256 skills; a skill file is limited to 1 MiB. The skill list in the prompt is capped at 32 KiB. Skills beyond a limit are skipped and the server logs a warning. `GET /registry` lists the skills a run in a project gets, with their paths. Permission rules match the `skill` tool against the skill name.
+
+zeta ships one built-in skill, `zeta`: the index of these documentation pages, loaded from the extracted docs directory. A discovered skill named `zeta` replaces it.

@@ -206,6 +206,7 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
     var resources: builtins.resources.Resources = .{
         .home = home,
         .config_dir = paths.config,
+        .docs_dir = try builtins.docs.materialize(arena, io, paths.data),
     };
     var bus: core.Bus = .init(gpa, io);
     defer bus.deinit();

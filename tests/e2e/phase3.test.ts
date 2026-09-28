@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeOpenAI } from "./fake-openai";
 import { Sandbox, zetaBin, type AgentEvent } from "./harness";
@@ -393,5 +393,23 @@ describe("administration", () => {
     expect((await sb.zeta(["run", "start again"])).code).toBe(0);
     expect((await snapshot(id)).running).toBe(false);
     expect(llm.requests.some((r) => r.messages.some((m: any) => m.content === "run until shutdown") && r.messages.some((m: any) => m.role === "tool"))).toBe(false);
+  });
+
+  test("a warm restart reuses materialized self-docs without rewriting them", async () => {
+    await boot();
+    const root = join(sb.env.XDG_DATA_HOME, "zeta", "docs");
+    const hashes = readdirSync(root);
+    expect(hashes).toHaveLength(1);
+    expect(hashes[0]).toMatch(/^[0-9a-f]{64}$/);
+    const directory = join(root, hashes[0]);
+    const readme = join(directory, "README.md");
+    expect(readFileSync(readme, "utf8")).toContain("# zeta documentation");
+    const before = [statSync(directory).mtimeMs, statSync(readme).mtimeMs];
+    expect((await sb.zeta(["server", "stop"])).code).toBe(0);
+    await Bun.sleep(30);
+    llm.reply({ text: "again" });
+    expect((await sb.zeta(["run", "restart"])).code).toBe(0);
+    expect(readdirSync(root)).toEqual(hashes);
+    expect([statSync(directory).mtimeMs, statSync(readme).mtimeMs]).toEqual(before);
   });
 });

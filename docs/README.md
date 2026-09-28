@@ -4,9 +4,12 @@ zeta is a Zig coding agent with a localhost server and clients. Build with Zig 0
 
 Clients share one background server per user, started on demand. `zeta run --standalone` starts a private server instead: it keeps its discovery record, lock and log in a directory of its own, loads none of the sessions saved earlier (its own are saved as usual; a session a server has open is locked, so another server never loads it at the same time), and stops when the client ends, removing its directory. `zeta serve --hostname <address>` listens on an IPv4 address other than `127.0.0.1` (e.g. `0.0.0.0`), so other machines can connect with HTTP Basic auth (user `zeta`, the password in the discovery file `$XDG_RUNTIME_DIR/zeta/server.json`); plain HTTP, so use it only on networks you trust.
 
-Documentation for configuring and using zeta:
+These documents ship inside the binary and are extracted to the user data directory under `docs/<content-hash>/`. Read the relevant page before changing configuration or resources:
 
+- [Concepts](concepts.md): the server, clients, projects, plugins and layers, where every file lives, and environment variables
+- [Extending zeta](extending.md): choosing between config, instructions, skills and templates, and checking a change took
 - [Sessions](sessions.md): storage, listing, export, undo, moving and forking
+- [Troubleshooting](troubleshooting.md): diagnostics, logs and common problems
 - [Configuration](configuration.md) and [credentials](credentials.md); copyable [config example](examples/zeta.jsonc)
 - [Supported providers and authentication](providers.md)
 - [Tools](tools.md), [permissions](permissions.md), and [skills](skills.md)
@@ -15,4 +18,4 @@ Documentation for configuring and using zeta:
 - [HTTP protocol](protocol.md)
 - [Generated tool/config reference](generated/reference.md) (`zig build docs` writes the complete documentation tree to `zig-out/docs`)
 
-The repository's top-level README covers the CLI and build commands. `GET /registry` shows the live plugins, tools, providers and prompt sections a run gets. The optional `zeta_inspect` tool provides this view when `inspect_tool` is enabled.
+The repository's top-level README covers the CLI and build commands. Self-docs do not authorize modifying zeta's source or binary. The built-in `zeta` skill indexes these pages, and `GET /registry` shows the live plugins, tools, providers and prompt sections a run gets. The optional `zeta_inspect` tool provides this view when `inspect_tool` is enabled.

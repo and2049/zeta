@@ -13,7 +13,7 @@ Arguments are schema-validated. Reads may execute concurrently; writes, edits, a
 
 The build-generated [reference](generated/reference.md) contains current built-in descriptions and input JSON Schemas taken from the tool definitions. `GET /registry?location=<absolute-project>` (or `?session=<id>`) reports the tools a run at that location gets (registered ones plus the skill tool), each with the plugin that provided it, along with providers and diagnostics. Built-in plugins sit in the built-in layer; a plugin in a narrower layer (user, then project) replaces a tool of the same name. Built-in tools must stay within the subset of JSON Schema zeta validates.
 
-`zeta_inspect` returns the same data, split into sections.
+`zeta_inspect` returns the same data, split into sections. There is no tool for changing zeta's source (see [extending zeta](extending.md)).
 
 ## Hook points
 
