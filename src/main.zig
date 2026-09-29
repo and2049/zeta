@@ -208,6 +208,9 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
         .config_dir = paths.config,
         .docs_dir = try builtins.docs.materialize(arena, io, paths.data),
     };
+    var command_hooks: builtins.hooks_cmd.Hooks = .{ .gpa = gpa, .registry = &registry, .env = env, .home = home, .config_dir = paths.config, .sessions_dir = sessions_dir };
+    defer command_hooks.deinit();
+    try command_hooks.register();
     var bus: core.Bus = .init(gpa, io);
     defer bus.deinit();
     var runtime: core.Runtime = .init(gpa, io, &bus, &registry, env, .{

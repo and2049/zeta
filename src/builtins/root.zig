@@ -16,6 +16,7 @@ pub const models = @import("models.zig");
 pub const resources = @import("resources.zig");
 pub const providers = @import("providers/root.zig");
 pub const docs = @import("docs.zig");
+pub const hooks_cmd = @import("hooks_cmd/root.zig");
 
 pub const register = @import("registry.zig").register;
 pub const Transports = @import("registry.zig").Transports;

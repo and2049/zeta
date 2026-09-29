@@ -50,7 +50,7 @@ zeta reload                          # reload plugins for this project
 - [Overview](docs/README.md)
 - [Configuration](docs/configuration.md), [providers](docs/providers.md), [credentials](docs/credentials.md)
 - [Prompt templates](docs/commands.md), [skills](docs/skills.md)
-- [Tools](docs/tools.md), [permissions](docs/permissions.md)
+- [Tools](docs/tools.md), [permissions](docs/permissions.md), [hooks](docs/hooks.md)
 - [compaction](docs/compaction.md)
 - [HTTP API and events](docs/protocol.md)
 

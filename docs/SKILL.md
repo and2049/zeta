@@ -16,6 +16,7 @@ The pages below sit next to this file. Find the row for the task, read its first
 | allow, ask about or refuse tool calls | `permissions.md` | `tools.md` |
 | add standing instructions or a skill | `skills.md` | `extending.md` |
 | add a slash command that expands to a prompt | `commands.md` | |
+| run shell commands at hook points | `hooks.md` | `tools.md` (hook points) |
 | list, continue, export, undo or move sessions | `sessions.md` | `compaction.md` |
 | look up a built-in tool or its limits | `tools.md` | `generated/reference.md` |
 | talk to the server over HTTP or read its events | `protocol.md` | `sessions.md` |
@@ -27,4 +28,4 @@ If enabled with `"inspect_tool": true`, call `zeta_inspect` with no arguments fo
 
 ## Changing zeta
 
-Change configuration, skills, prompt templates and `AGENTS.md` with the normal file tools; the next run reads them. Check the result in the registry before telling the user it works. Never modify zeta's own source or binary.
+Change configuration, skills, prompt templates and `AGENTS.md` with the normal file tools; the next run reads them. Plugins loaded from outside the binary (`hooks.json`) need `zeta reload` (or `POST /registry/reload`) after a change. Check the result in the registry before telling the user it works. Never modify zeta's own source or binary.

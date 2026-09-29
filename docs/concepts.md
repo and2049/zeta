@@ -9,7 +9,7 @@ The few ideas the rest of these pages build on, and a map of where each thing li
 - **Project (location).** The nearest enclosing git root of a directory, or the directory itself. Sessions, project config, project plugins and permissions are all per project. HTTP routes take it as `location=<absolute path>` or derive it from `session=<id>`.
 - **Session.** A conversation in one project, stored as an append-only JSONL log. A session pins its model and thinking level on its first run. See [sessions](sessions.md).
 - **Run and turn.** A run starts when a prompt leaves the session's inbox and ends when the agent stops; each model request and the tool calls it makes form a turn. Inputs wait in the inbox and are delivered one at a time.
-- **Plugins.** Every capability is a plugin in one registry: each built-in tool, each provider, each wire API (OpenAI Chat Completions, Codex Responses, Anthropic Messages), and the skills loader. `GET /registry` lists them with what each one provides.
+- **Plugins.** Every capability is a plugin in one registry: each built-in tool, each provider, each wire API (OpenAI Chat Completions, Codex Responses, Anthropic Messages), the skills loader, each `hooks.json` file. `GET /registry` lists them with what each one provides.
 - **Layers.** Plugins and config come from three layers: built-in (inside the binary), user (`~/.config/zeta/`, `~/.agents/`) and project (`<project>/.zeta/`, `<project>/.agents/`). A narrower layer wins: a project tool replaces a user or built-in tool of the same name, and project config overrides user config. Hooks from every layer run, built-in first.
 - **Resources.** Plain files read fresh for every run, with no code: `zeta.jsonc`, `AGENTS.md`, skills and prompt templates.
 
@@ -23,6 +23,7 @@ zeta changes its own behavior through files, never through its source or binary:
 | standing instructions | `AGENTS.md` ([skills](skills.md)) | next run |
 | on-demand know-how | `skills/<name>/SKILL.md` ([skills](skills.md)) | next run |
 | slash commands that expand to a prompt | `prompts/<name>.md` ([prompt templates](commands.md)) | immediately |
+| shell commands at hook points | `hooks.json` ([command hooks](hooks.md)) | `zeta reload` |
 
 [Extending zeta](extending.md) explains how to pick between them and how to check the result.
 
@@ -36,6 +37,7 @@ zeta changes its own behavior through files, never through its source or binary:
 | instructions | `<config>/AGENTS.md` | `AGENTS.md` in the project and every ancestor directory | `GET /registry` `prompt_sections` |
 | skills | `~/.agents/skills/`, `<config>/skills/` | `.agents/skills/`, `.zeta/skills/` | `GET /registry` `skills` |
 | prompt templates | `~/.agents/prompts/`, `<config>/prompts/` | `.agents/prompts/`, `.zeta/prompts/` | `GET /commands` |
+| command hooks | `~/.agents/hooks.json`, `<config>/hooks.json` | `.agents/hooks.json`, `.zeta/hooks.json` | `GET /registry` `hooks` |
 | sessions | `<data>/sessions/<project-hash>/<id>.jsonl`, saved tool output in `<id>.artifacts/` | | `zeta sessions`, `GET /sessions` |
 | credentials | `<data>/credentials.json` (0600) | | `GET /credentials` (no values) |
 | these docs | `<data>/docs/<content-hash>/` | | the `zeta` skill |
@@ -44,7 +46,7 @@ zeta changes its own behavior through files, never through its source or binary:
 | model catalog cache | `<cache>/models.json` | | `GET /models` |
 | discovery file | `<runtime>/server.json` (0600) | | `GET /health` |
 
-Project paths are relative to the project root. Where a cell lists several places, later ones win when names collide (skills, templates); `AGENTS.md` files all apply, in the order listed.
+Project paths are relative to the project root. Where a cell lists several places, later ones win when names collide (skills, templates); `AGENTS.md` and `hooks.json` files all apply, in the order listed.
 
 ## Environment variables
 
@@ -55,4 +57,4 @@ Project paths are relative to the project root. Where a cell lists several place
 | `ZETA_MODEL` | select a model; overrides `--model` and config |
 | `<PROVIDER>_API_KEY` and the catalog's names (`OPENAI_API_KEY`, …) | provider keys, after config and saved credentials ([credentials](credentials.md)) |
 
-Use `{env:VAR}` in any config string to read other environment variables.
+Hook commands receive `ZETA_PROJECT_DIR` and `ZETA_SESSION_ID` ([command hooks](hooks.md#input)). Use `{env:VAR}` in any config string to read others.

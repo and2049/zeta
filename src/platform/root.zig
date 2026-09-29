@@ -6,6 +6,7 @@ pub const fs = @import("fs.zig");
 pub const signal = @import("signal.zig");
 pub const process = @import("process.zig");
 pub const command = @import("command.zig");
+pub const hook_process = @import("hook_process.zig");
 pub const credentials = @import("credentials.zig");
 pub const browser = @import("browser.zig");
 pub const terminal = @import("terminal.zig");

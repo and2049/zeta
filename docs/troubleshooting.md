@@ -4,7 +4,7 @@ Start with what zeta reports about itself, then the logs.
 
 ## Where to look
 
-1. **Registry diagnostics.** `GET /registry?location=<project>` (or `zeta_inspect` `diagnostics`) lists load failures and warnings for plugins. A plugin that failed to reload keeps its previous version until fixed.
+1. **Registry diagnostics.** `GET /registry?location=<project>` (or `zeta_inspect` `diagnostics`) lists load failures and warnings for plugins: a `hooks.json` that does not parse, a skipped hook matcher. A plugin that failed to reload keeps its previous version until fixed.
 2. **Config diagnostics.** `GET /config?location=<project>` shows each effective value with the layer that set it, and lists ignored keys and invalid `plugin.<id>` settings.
 4. **Server log.** A server started by a client writes to `$XDG_STATE_HOME/zeta/server.log` (default `~/.local/state/zeta/server.log`), emptied each time one starts; `zeta serve` writes to its terminal instead. It has provider failures, retries, hook failures, skipped skills and catalog refresh errors.
 5. **The session log.** The `system` lines in a session's JSONL show exactly what the model was told, and message lines what it did ([sessions](sessions.md)).
