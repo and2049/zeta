@@ -34,7 +34,7 @@ pub const Resources = struct {
         if (discovered.len != 0) try sections.append(arena, .{ .name = "available skills", .text = try skills.promptMetadata(arena, discovered) });
         if (self.docs_dir) |directory| try sections.append(arena, .{ .name = "zeta documentation", .text = try std.fmt.allocPrint(
             arena,
-            "zeta documentation (read only when the user asks about zeta itself, its config, plugins, skills, or asks to extend or change zeta): {s}/README.md, {s}/*.md, examples: {s}/examples/. Read files completely and follow links before changing zeta.",
+            "zeta documentation (read only when the user asks about zeta itself, its config, plugins, extensions, skills, or asks to extend or change zeta): {s}/README.md, {s}/*.md, examples: {s}/examples/. Read files completely and follow links before changing zeta.",
             .{ directory, directory, directory },
         ) });
         return .{

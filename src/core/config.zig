@@ -77,6 +77,8 @@ pub const Config = struct {
     plugin: std.json.ArrayHashMap(std.json.Value) = .{},
     /// `mcp`: MCP servers, read by the MCP client plugin (raw JSON).
     mcp: std.json.Value = .null,
+    /// `extensions`: extension commands to run per project (raw JSON).
+    extensions: std.json.Value = .null,
     compaction: Compaction = .{},
     /// Dot-separated config keys map to their winning layer; arena-owned.
     /// Only recognized top-level keys appear.
@@ -108,10 +110,11 @@ const ParsedConfig = struct {
     provider: std.json.ArrayHashMap(Provider) = .{},
     plugin: std.json.ArrayHashMap(std.json.Value) = .{},
     mcp: std.json.Value = .null,
+    extensions: std.json.Value = .null,
     compaction: Compaction = .{},
 };
 
-pub const known_keys = [_][]const u8{ "model", "small_model", "thinking", "tool_timeout_ms", "inspect_tool", "permission", "provider", "plugin", "mcp", "compaction" };
+pub const known_keys = [_][]const u8{ "model", "small_model", "thinking", "tool_timeout_ms", "inspect_tool", "permission", "provider", "plugin", "mcp", "extensions", "compaction" };
 
 pub fn isKnown(key: []const u8) bool {
     for (known_keys) |known| if (std.mem.eql(u8, key, known)) return true;
@@ -179,7 +182,7 @@ pub fn loadWithOptions(
         if (!isKnown(top)) try stale.append(arena, key.*);
     }
     for (stale.items) |key| _ = provenance.remove(key);
-    return .{ .model = parsed.model, .small_model = parsed.small_model, .thinking = parsed.thinking, .tool_timeout_ms = parsed.tool_timeout_ms, .inspect_tool = parsed.inspect_tool, .permission = parsed.permission, .provider = parsed.provider, .plugin = parsed.plugin, .mcp = parsed.mcp, .compaction = parsed.compaction, .provenance = provenance, .unknown = unknown.items };
+    return .{ .model = parsed.model, .small_model = parsed.small_model, .thinking = parsed.thinking, .tool_timeout_ms = parsed.tool_timeout_ms, .inspect_tool = parsed.inspect_tool, .permission = parsed.permission, .provider = parsed.provider, .plugin = parsed.plugin, .mcp = parsed.mcp, .extensions = parsed.extensions, .compaction = parsed.compaction, .provenance = provenance, .unknown = unknown.items };
 }
 
 fn validProfileName(name: []const u8) bool {

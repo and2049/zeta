@@ -104,7 +104,7 @@ pub const Prepared = struct {
     sections: []const prompt_mod.Section = &.{},
 };
 
-/// Composition-root seam for per-location skills/resources.
+/// Composition-root extension seam for per-location skills/resources.
 pub const Resources = struct {
     ctx: ?*anyopaque = null,
     prepare: *const fn (?*anyopaque, Allocator, Io, []const u8, config.Config, []const plugin.tool.Tool) anyerror!Prepared,

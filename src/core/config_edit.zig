@@ -101,6 +101,10 @@ fn validateIncoming(patch: Value) !void {
             if (value != .null and value != .object) return error.InvalidConfig;
             continue;
         }
+        if (std.mem.eql(u8, key, "extensions")) {
+            if (value != .null and value != .array) return error.InvalidConfig;
+            continue;
+        }
         if (std.mem.eql(u8, key, "compaction")) {
             if (value != .null and value != .object) return error.InvalidConfig;
             continue;
@@ -177,6 +181,18 @@ fn validate(root: Value) !void {
             for (v.object.keys()) |id| if (id.len == 0) return error.InvalidConfig;
         } else if (std.mem.eql(u8, k, "compaction")) {
             _ = std.json.parseFromValueLeaky(config.Compaction, std.heap.page_allocator, v, .{}) catch return error.InvalidConfig;
+        } else if (std.mem.eql(u8, k, "extensions")) {
+            if (v != .array) return error.InvalidConfig;
+            for (v.array.items) |item| {
+                if (item != .object) return error.InvalidConfig;
+                const command = item.object.get("command") orelse return error.InvalidConfig;
+                if (command != .array or command.array.items.len == 0) return error.InvalidConfig;
+                for (command.array.items) |arg| if (arg != .string) return error.InvalidConfig;
+                if (item.object.get("env")) |env| {
+                    if (env != .object) return error.InvalidConfig;
+                    for (env.object.values()) |value| if (value != .string) return error.InvalidConfig;
+                }
+            }
         } else if (std.mem.eql(u8, k, "mcp")) {
             if (v != .object) return error.InvalidConfig;
             if (v.object.get("servers")) |servers| if (servers != .object) return error.InvalidConfig;
@@ -236,6 +252,7 @@ pub fn view(arena: Allocator, c: config.Config) !Value {
     while (plugin_it.next()) |p| try plugins.put(arena, p.key_ptr.*, try redact(arena, p.value_ptr.*, ""));
     try values.put(arena, "plugin", .{ .object = plugins });
     if (c.mcp == .object) try values.put(arena, "mcp", try redactMcp(arena, c.mcp));
+    if (c.extensions == .array) try values.put(arena, "extensions", try redactExtensions(arena, c.extensions));
     try values.put(arena, "compaction", try std.json.parseFromSliceLeaky(Value, arena, try std.json.Stringify.valueAlloc(arena, c.compaction, .{}), .{}));
     var sources: std.json.ObjectMap = .empty;
     var pi = c.provenance.iterator();
@@ -244,6 +261,20 @@ pub fn view(arena: Allocator, c: config.Config) !Value {
     try result.put(arena, "config", .{ .object = values });
     try result.put(arena, "provenance", .{ .object = sources });
     return .{ .object = result };
+}
+
+/// Extension `env` values are secrets as a rule.
+fn redactExtensions(arena: Allocator, list: Value) !Value {
+    const out = try redact(arena, list, "");
+    for (out.array.items) |*item| {
+        if (item.* != .object) continue;
+        const slot = item.object.getPtr("env") orelse continue;
+        if (slot.* != .object) continue;
+        var hidden: std.json.ObjectMap = .empty;
+        for (slot.object.keys()) |key| try hidden.put(arena, key, .{ .string = "[REDACTED]" });
+        slot.* = .{ .object = hidden };
+    }
+    return out;
 }
 
 /// Server `headers` and `environment` values are secrets as a rule.

@@ -143,3 +143,28 @@ test "a substituted thinking level is left for load to check" {
     try patchFile(a, io, path, try std.json.parseFromSliceLeaky(Value, a, "{\"small_model\":\"p/m\"}", .{}));
     try std.testing.expectError(error.InvalidConfig, patchFile(a, io, path, try std.json.parseFromSliceLeaky(Value, a, "{\"thinking\":\"max\"}", .{})));
 }
+
+test "extension env must contain only string values before replacement" {
+    const io = std.testing.io;
+    var state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer state.deinit();
+    const a = state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const base = buf[0..try tmp.dir.realPath(io, &buf)];
+    const path = try pathFor(a, .user, base, base);
+    const original = "{\"extensions\":[{\"command\":[\"echo\"],\"env\":{\"KEY\":\"ok\"}}]}";
+    try tmp.dir.writeFile(io, .{ .sub_path = config.file_name, .data = original });
+    for ([_][]const u8{
+        "{\"extensions\":[{\"command\":[\"echo\"],\"env\":{\"KEY\":42}}]}",
+        "{\"extensions\":[{\"command\":[\"echo\"],\"env\":null}]}",
+        "{\"extensions\":[{\"command\":[],\"env\":{}}]}",
+    }) |text| {
+        const patch = try std.json.parseFromSliceLeaky(Value, a, text, .{});
+        try std.testing.expectError(error.InvalidConfig, patchFile(a, io, path, patch));
+        try std.testing.expectEqualStrings(original, try Io.Dir.cwd().readFileAlloc(io, path, a, .limited(max_file)));
+    }
+    const valid = try std.json.parseFromSliceLeaky(Value, a, "{\"extensions\":[{\"command\":[\"echo\"],\"env\":{\"KEY\":\"value\"}}]}", .{});
+    try patchFile(a, io, path, valid);
+}

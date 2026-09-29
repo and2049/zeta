@@ -1,0 +1,1 @@
+{"name": "hello", "command": ["python3", "hello.py"], "description": "Example extension: a tool, a command, a hook and a provider"}

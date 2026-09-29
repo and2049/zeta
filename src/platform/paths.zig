@@ -4,7 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const Paths = struct {
-    /// `$XDG_CONFIG_HOME/zeta`: user config, skills.
+    /// `$XDG_CONFIG_HOME/zeta`: user config, skills, extensions.
     config: []const u8,
     /// `$XDG_DATA_HOME/zeta`: sessions, credentials, materialized docs.
     data: []const u8,

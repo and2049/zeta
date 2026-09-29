@@ -9,7 +9,7 @@ The few ideas the rest of these pages build on, and a map of where each thing li
 - **Project (location).** The nearest enclosing git root of a directory, or the directory itself. Sessions, project config, project plugins and permissions are all per project. HTTP routes take it as `location=<absolute path>` or derive it from `session=<id>`.
 - **Session.** A conversation in one project, stored as an append-only JSONL log. A session pins its model and thinking level on its first run. See [sessions](sessions.md).
 - **Run and turn.** A run starts when a prompt leaves the session's inbox and ends when the agent stops; each model request and the tool calls it makes form a turn. Inputs wait in the inbox and are delivered one at a time.
-- **Plugins.** Every capability is a plugin in one registry: each built-in tool, each provider, each wire API (OpenAI Chat Completions, Codex Responses, Anthropic Messages), the skills loader, each `hooks.json` file, each MCP server. `GET /registry` lists them with what each one provides.
+- **Plugins.** Every capability is a plugin in one registry: each built-in tool, each provider, each wire API (OpenAI Chat Completions, Codex Responses, Anthropic Messages), the skills loader, each `hooks.json` file, each MCP server and each extension. `GET /registry` lists them with what each one provides.
 - **Layers.** Plugins and config come from three layers: built-in (inside the binary), user (`~/.config/zeta/`, `~/.agents/`) and project (`<project>/.zeta/`, `<project>/.agents/`). A narrower layer wins: a project tool replaces a user or built-in tool of the same name, and project config overrides user config. Hooks from every layer run, built-in first.
 - **Resources.** Plain files read fresh for every run, with no code: `zeta.jsonc`, `AGENTS.md`, skills and prompt templates.
 
@@ -25,6 +25,7 @@ zeta changes its own behavior through files, never through its source or binary:
 | slash commands that expand to a prompt | `prompts/<name>.md` ([prompt templates](commands.md)) | immediately |
 | shell commands at hook points | `hooks.json` ([command hooks](hooks.md)) | `zeta reload` |
 | tools from an MCP server | `mcp` in `zeta.jsonc` ([MCP servers](mcp.md)) | `zeta reload` |
+| new tools, commands, hooks or providers in code | an extension ([extensions](extensions.md)) | `zeta reload` |
 
 [Extending zeta](extending.md) explains how to pick between them and how to check the result.
 
@@ -39,12 +40,14 @@ zeta changes its own behavior through files, never through its source or binary:
 | skills | `~/.agents/skills/`, `<config>/skills/` | `.agents/skills/`, `.zeta/skills/` | `GET /registry` `skills` |
 | prompt templates | `~/.agents/prompts/`, `<config>/prompts/` | `.agents/prompts/`, `.zeta/prompts/` | `GET /commands` |
 | command hooks | `~/.agents/hooks.json`, `<config>/hooks.json` | `.agents/hooks.json`, `.zeta/hooks.json` | `GET /registry` `hooks` |
+| extensions | `~/.agents/extensions/`, `<config>/extensions/` | `.agents/extensions/`, `.zeta/extensions/`, `extensions` in config | `GET /extensions`, `zeta_inspect` `plugins` |
 | MCP servers | `mcp` in user config | `mcp` in project config | `zeta mcp`, `GET /mcp` |
 | sessions | `<data>/sessions/<project-hash>/<id>.jsonl`, saved tool output in `<id>.artifacts/` | | `zeta sessions`, `GET /sessions` |
 | credentials | `<data>/credentials.json` (0600) | | `GET /credentials` (no values) |
 | these docs | `<data>/docs/<content-hash>/` | | the `zeta` skill |
 | last picked model | `<state>/model.json` | | `GET /config` provenance `remembered` |
 | server log | `<state>/server.log` for a server a client started (emptied when it starts); `zeta serve` logs to its terminal | | read the file |
+| extension logs | `<state>/extensions/<name>.log` | | read the file |
 | model catalog cache | `<cache>/models.json` | | `GET /models` |
 | discovery file | `<runtime>/server.json` (0600) | | `GET /health` |
 

@@ -68,5 +68,6 @@ run shell commands.
 
 ## Other commands
 
-Each MCP server's prompts become commands named `<server>:<prompt>` (see [MCP servers](mcp.md#prompts)).
+Extensions register commands of their own, and each MCP server's prompts
+become commands named `<server>:<prompt>` (see [MCP servers](mcp.md#prompts)).
 They are listed with the templates in `GET /commands`.

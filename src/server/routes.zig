@@ -28,6 +28,8 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
     // Server names may be any string: the client percent-encodes them.
     if (seg.len == 3 and std.mem.eql(u8, seg[0], "mcp") and std.mem.eql(u8, seg[2], "connect")) return admin.loaderRetry(s, c, "mcp", try decoded(c.arena, seg[1]), "mcp server not found");
     if (seg.len == 3 and std.mem.eql(u8, seg[0], "mcp") and std.mem.eql(u8, seg[2], "auth")) return admin.loaderAuth(s, c, "mcp", try decoded(c.arena, seg[1]), "mcp server not found");
+    if (seg.len == 1 and std.mem.eql(u8, seg[0], "extensions")) return admin.loaderStatus(s, c, "extensions", "extensions");
+    if (seg.len == 3 and std.mem.eql(u8, seg[0], "extensions") and std.mem.eql(u8, seg[2], "restart")) return admin.loaderRetry(s, c, "extensions", try decoded(c.arena, seg[1]), "extension not found");
     if ((seg.len == 1 or seg.len == 2) and std.mem.eql(u8, seg[0], "credentials")) return admin.credentials(s, c, if (seg.len == 2) seg[1] else null);
     if (seg.len == 1) {
         if (std.mem.eql(u8, seg[0], "config") and c.method == .PATCH) return admin.patchConfig(s, c);

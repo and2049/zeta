@@ -16,6 +16,7 @@ pub const auth = @import("auth.zig");
 pub const mcp = @import("mcp.zig");
 pub const mcp_cli = @import("mcp_cli.zig");
 pub const standalone = @import("standalone.zig");
+pub const extensions = @import("extensions.zig");
 pub const state = @import("state.zig");
 pub const connection = @import("connection.zig");
 

@@ -7,7 +7,7 @@ Clients share one background server per user, started on demand. `zeta run --sta
 These documents ship inside the binary and are extracted to the user data directory under `docs/<content-hash>/`. Read the relevant page before changing configuration or resources:
 
 - [Concepts](concepts.md): the server, clients, projects, plugins and layers, where every file lives, and environment variables
-- [Extending zeta](extending.md): choosing between config, instructions, skills, templates, hooks and MCP, and checking a change took
+- [Extending zeta](extending.md): choosing between config, instructions, skills, templates, hooks, MCP and extensions, writing an extension, and checking a change took
 - [Sessions](sessions.md): storage, listing, export, undo, moving and forking
 - [Troubleshooting](troubleshooting.md): diagnostics, logs and common problems
 - [Configuration](configuration.md) and [credentials](credentials.md); copyable [config example](examples/zeta.jsonc)
@@ -15,9 +15,10 @@ These documents ship inside the binary and are extracted to the user data direct
 - [Tools](tools.md), [permissions](permissions.md), and [skills](skills.md)
 - [Prompt templates](commands.md): slash commands from `prompts/*.md`
 - [Compaction](compaction.md): how long sessions are summarized to fit the context window, and manual compaction
+- [Extensions](extensions.md): programs in any language that add tools, commands, hooks and model providers (the protocol, with a Python example in `examples/extensions/`)
 - [MCP servers](mcp.md): tools from local and remote MCP servers
 - [Command hooks](hooks.md): shell commands from `hooks.json` at session start, prompt submit, tool calls, permission asks and stop
 - [HTTP protocol](protocol.md)
 - [Generated tool/config reference](generated/reference.md) (`zig build docs` writes the complete documentation tree to `zig-out/docs`)
 
-The repository's top-level README covers the CLI and build commands. Self-docs do not authorize modifying zeta's source or binary. The built-in `zeta` skill indexes these pages, and `GET /registry` shows the live plugins, tools, providers and prompt sections a run gets. The optional `zeta_inspect` tool provides this view when `inspect_tool` is enabled.
+The repository's top-level README covers the CLI and build commands. Self-docs do not authorize modifying zeta's source or binary. The built-in `zeta` skill indexes these pages, and `GET /registry` shows the live plugins, tools, providers and prompt sections a run gets. The optional `zeta_inspect` tool provides this view when `inspect_tool` is enabled. There is no install command: place an extension in an `extensions/` directory or list it in config.

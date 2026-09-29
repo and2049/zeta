@@ -90,7 +90,7 @@ pub fn deinit(r: *Registry) void {
 
 /// Plugin ids are unique among live and staged plugins of one scope: the
 /// built-in layer, the user layer, or one project location. The same
-/// project plugin (an MCP server) can run in many projects.
+/// project plugin (an MCP server, an extension) can run in many projects.
 pub fn addPlugin(r: *Registry, new: Plugin) !Owner {
     return r.insert(new, .live, null);
 }

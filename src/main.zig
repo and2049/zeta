@@ -227,6 +227,22 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
     var mcp: builtins.mcp.Mcp = .{ .host = .{ .gpa = gpa, .registry = &registry, .env = env, .version = build_options.version, .data_dir = paths.data }, .io = io, .config_dir = paths.config };
     defer mcp.deinit();
     try mcp.register();
+    var extensions: builtins.extensions.Extensions = .{
+        .io = io,
+        .host = .{
+            .gpa = gpa,
+            .registry = &registry,
+            .env = env,
+            .config_dir = paths.config,
+            .home = home,
+            .data_dir = paths.data,
+            // A standalone server's extension logs stay beside it.
+            .log_dir = try std.fs.path.join(arena, &.{ if (options.parent != null) paths.runtime else paths.state, "extensions" }),
+        },
+    };
+    defer extensions.deinit();
+    try extensions.register();
+
     var bus: core.Bus = .init(gpa, io);
     defer bus.deinit();
     var runtime: core.Runtime = .init(gpa, io, &bus, &registry, env, .{
@@ -236,9 +252,12 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
         .resources = resources.resources(),
     });
     defer runtime.deinit();
-    // Run before runtime.deinit: MCP servers stop calling into the runtime.
+    // Run before runtime.deinit: extensions and MCP servers stop calling
+    // into the runtime.
+    defer extensions.shutdownAll();
     defer mcp.shutdownAll();
     inspector.runtime = &runtime;
+    extensions.host.runtime = &runtime;
     mcp.host.asker = runtime.asker();
     // A standalone server leaves the sessions to the shared one.
     if (options.parent == null) _ = try runtime.restore();

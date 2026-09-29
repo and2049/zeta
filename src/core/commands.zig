@@ -70,8 +70,8 @@ pub fn run(rt: *Runtime, session_id: []const u8, name: []const u8, arguments: []
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const context = try rt.context(arena, session_id);
-    // A plugin command may come from something still starting;
-    // give it its bounded chance, as a run does.
+    // A plugin command may come from something still starting (an
+    // extension); give it its bounded chance, as a run does.
     _ = try rt.registry.activate(arena, context.location);
     try rt.registry.settle(context.location);
     const listing = try list(rt, arena, context.location);

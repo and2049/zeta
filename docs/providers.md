@@ -172,6 +172,7 @@ adaptive `thinking` with `output_config.effort` (`off` and `minimal` are `low`,
 since some of these models always think; `xhigh` is `max`), or on models from
 before adaptive thinking a `budget_tokens` budget (1024 to 32768, leaving 1024
 tokens for the answer), where `off` disables thinking.
+Extension providers receive the level as `thinking`.
 
 ## Prompt caching and context overflow
 

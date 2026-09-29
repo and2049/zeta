@@ -1,4 +1,5 @@
-//! The event envelope. One shape everywhere: the SSE feed, `zeta run --json`.
+//! The event envelope. One shape everywhere: the SSE feed, `zeta run --json`,
+//! and (later) extension notifications.
 //!
 //! `{"seq":812,"type":"message.part.delta","session":"ses_…","location":"/p","time":1790000000000,"data":{…}}`
 

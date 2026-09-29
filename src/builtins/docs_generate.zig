@@ -52,6 +52,7 @@ fn fieldSchema(comptime name: []const u8) []const u8 {
     if (eql(u8, name, "provider")) return "{\"type\":\"object\",\"description\":\"Provider IDs map to options (baseURL, apiKey, setCacheKey) and models overrides\"}";
     if (eql(u8, name, "plugin")) return "{\"type\":\"object\",\"description\":\"Plugin IDs map to that plugin's own config, checked against the schema it declares\"}";
     if (eql(u8, name, "mcp")) return "{\"type\":\"object\",\"properties\":{\"timeout\":{\"type\":\"integer\",\"minimum\":1},\"deferred\":{\"type\":\"boolean\",\"description\":\"Every server's default for deferred\"},\"servers\":{\"type\":\"object\",\"description\":\"Server names map to {type: local, command, cwd?, environment?} or {type: remote, url, headers?, oauth?}, with disabled?, timeout?, disabled_tools?, instructions? and deferred?\"}}}";
+    if (eql(u8, name, "extensions")) return "{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"array\",\"minItems\":1,\"items\":{\"type\":\"string\"}},\"env\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}},\"required\":[\"command\"]}}";
     if (eql(u8, name, "compaction")) return "{\"type\":\"object\",\"properties\":{\"enabled\":{\"type\":\"boolean\"},\"reserveTokens\":{\"type\":\"integer\",\"minimum\":0},\"keepRecentTokens\":{\"type\":\"integer\",\"minimum\":0}}}";
     @compileError("new config field needs a generated schema definition");
 }

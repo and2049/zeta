@@ -86,7 +86,7 @@ pub fn reload(s: *Server, c: *Ctx) !void {
 }
 
 /// `?location=` or `?session=` → `{"<key>": [...]}`: the named loader's
-/// status (MCP servers). Asking loads the location if nothing
+/// status (MCP servers, extensions). Asking loads the location if nothing
 /// has yet.
 pub fn loaderStatus(s: *Server, c: *Ctx, loader: []const u8, comptime key: []const u8) !void {
     if (c.method != .GET) return c.fail(.method_not_allowed, "method not allowed");
@@ -99,7 +99,7 @@ pub fn loaderStatus(s: *Server, c: *Ctx, loader: []const u8, comptime key: []con
 }
 
 /// `{"location": "/abs/project"}`: starts the named thing of that loader
-/// again (connects an MCP server).
+/// again (connects an MCP server, restarts an extension).
 pub fn loaderRetry(s: *Server, c: *Ctx, loader: []const u8, name: []const u8, missing: []const u8) !void {
     if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
     const body = try c.bodyJson(struct { location: []const u8 });
