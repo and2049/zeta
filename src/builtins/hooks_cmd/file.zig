@@ -124,7 +124,7 @@ test "commands, timeouts and warnings for what cannot run" {
     const parsed = try parse(arena.allocator(),
         \\{"hooks": {
         \\  "PreToolUse": [{"matcher": "Bash|edit", "hooks": [{"type": "command", "command": "check.sh", "timeout": 5}]},
-        \\                 {"matcher": "shell__.*", "hooks": [{"type": "command", "command": "x"}]}],
+        \\                 {"matcher": "mcp__.*", "hooks": [{"type": "command", "command": "x"}]}],
         \\  "Stop": [{"hooks": [{"type": "prompt", "prompt": "?"}, {"type": "command", "command": "done.sh"}]}],
         \\  "Notification": [],
         \\}}
@@ -143,7 +143,7 @@ test "matchers take names, aliases and wildcards" {
     try testing.expect(matches("*", "anything"));
     try testing.expect(matches("Bash", "bash"));
     try testing.expect(matches("Write | Edit", "edit"));
-    try testing.expect(matches("shell__*", "shell__git__status"));
+    try testing.expect(matches("mcp__*", "mcp__git__status"));
     try testing.expect(!matches("Bash", "read"));
     try testing.expect(matches("startup", "startup"));
     try testing.expect(!matches("resume", "startup"));

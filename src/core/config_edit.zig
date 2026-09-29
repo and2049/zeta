@@ -97,7 +97,7 @@ fn validateIncoming(patch: Value) !void {
         const key = entry.key_ptr.*;
         const value = entry.value_ptr.*;
         if (std.mem.eql(u8, key, "model") or std.mem.eql(u8, key, "small_model") or std.mem.eql(u8, key, "tool_timeout_ms") or std.mem.eql(u8, key, "thinking")) continue;
-        if (std.mem.eql(u8, key, "plugin")) {
+        if (std.mem.eql(u8, key, "plugin") or std.mem.eql(u8, key, "mcp")) {
             if (value != .null and value != .object) return error.InvalidConfig;
             continue;
         }
@@ -177,6 +177,9 @@ fn validate(root: Value) !void {
             for (v.object.keys()) |id| if (id.len == 0) return error.InvalidConfig;
         } else if (std.mem.eql(u8, k, "compaction")) {
             _ = std.json.parseFromValueLeaky(config.Compaction, std.heap.page_allocator, v, .{}) catch return error.InvalidConfig;
+        } else if (std.mem.eql(u8, k, "mcp")) {
+            if (v != .object) return error.InvalidConfig;
+            if (v.object.get("servers")) |servers| if (servers != .object) return error.InvalidConfig;
         } else if (std.mem.eql(u8, k, "provider")) {
             if (v != .object) return error.InvalidConfig;
             var providers = v.object.iterator();
@@ -232,6 +235,7 @@ pub fn view(arena: Allocator, c: config.Config) !Value {
     var plugin_it = c.plugin.map.iterator();
     while (plugin_it.next()) |p| try plugins.put(arena, p.key_ptr.*, try redact(arena, p.value_ptr.*, ""));
     try values.put(arena, "plugin", .{ .object = plugins });
+    if (c.mcp == .object) try values.put(arena, "mcp", try redactMcp(arena, c.mcp));
     try values.put(arena, "compaction", try std.json.parseFromSliceLeaky(Value, arena, try std.json.Stringify.valueAlloc(arena, c.compaction, .{}), .{}));
     var sources: std.json.ObjectMap = .empty;
     var pi = c.provenance.iterator();
@@ -240,6 +244,24 @@ pub fn view(arena: Allocator, c: config.Config) !Value {
     try result.put(arena, "config", .{ .object = values });
     try result.put(arena, "provenance", .{ .object = sources });
     return .{ .object = result };
+}
+
+/// Server `headers` and `environment` values are secrets as a rule.
+fn redactMcp(arena: Allocator, mcp: Value) !Value {
+    var out = try redact(arena, mcp, "");
+    const servers = out.object.get("servers") orelse return out;
+    if (servers != .object) return out;
+    for (servers.object.values()) |*server| {
+        if (server.* != .object) continue;
+        for ([_][]const u8{ "headers", "environment" }) |name| {
+            const slot = server.object.getPtr(name) orelse continue;
+            if (slot.* != .object) continue;
+            var hidden: std.json.ObjectMap = .empty;
+            for (slot.object.keys()) |key| try hidden.put(arena, key, .{ .string = "[REDACTED]" });
+            slot.* = .{ .object = hidden };
+        }
+    }
+    return out;
 }
 
 fn redact(arena: Allocator, v: Value, key: []const u8) anyerror!Value {

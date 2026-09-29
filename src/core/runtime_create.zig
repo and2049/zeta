@@ -195,11 +195,13 @@ pub fn replyPermission(rt: *Runtime, id: []const u8, answer: permissions.Reply) 
     return false;
 }
 
-/// The last event listener left: open permission asks deny.
+/// The last event listener left: open permission asks deny and open
+/// questions decline.
 pub fn disconnectPermissions(rt: *Runtime) void {
     rt.mutex.lockUncancelable(rt.io);
     defer rt.mutex.unlock(rt.io);
     if (rt.broker) |*broker| broker.disconnect();
+    if (rt.asks) |*a| a.disconnect();
 }
 
 test "a fork needs every copied tool call answered" {

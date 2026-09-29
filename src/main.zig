@@ -57,6 +57,19 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, cmd, "usage")) return cli(gpa, arena, io, init.environ_map, client.usage_cli.run, args[2..]);
     if (std.mem.eql(u8, cmd, "undo")) return cli(gpa, arena, io, init.environ_map, client.sessions_cli.undo, args[2..]);
     if (std.mem.eql(u8, cmd, "sessions")) return cli(gpa, arena, io, init.environ_map, client.sessions_cli.run, args[2..]);
+    if (std.mem.eql(u8, cmd, "mcp")) {
+        const paths = try platform.Paths.resolve(arena, init.environ_map);
+        var buf: [4096]u8 = undefined;
+        var stdout = std.Io.File.stdout().writer(io, &buf);
+        const code = try client.mcp_cli.run(gpa, io, &stdout.interface, args[2..], .{
+            .paths = paths,
+            .exe = try std.process.executablePathAlloc(io, arena),
+            .cwd = try std.process.currentPathAlloc(io, arena),
+        });
+        try stdout.interface.flush();
+        if (code != 0) std.process.exit(code);
+        return;
+    }
     if (std.mem.eql(u8, cmd, "auth") and args.len == 4 and std.mem.eql(u8, args[2], "login")) {
         const paths = try platform.Paths.resolve(arena, init.environ_map);
         try client.admin.authLogin(gpa, io, paths, args[3]);
@@ -211,6 +224,9 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
     var command_hooks: builtins.hooks_cmd.Hooks = .{ .gpa = gpa, .registry = &registry, .env = env, .home = home, .config_dir = paths.config, .sessions_dir = sessions_dir };
     defer command_hooks.deinit();
     try command_hooks.register();
+    var mcp: builtins.mcp.Mcp = .{ .host = .{ .gpa = gpa, .registry = &registry, .env = env, .version = build_options.version, .data_dir = paths.data }, .io = io, .config_dir = paths.config };
+    defer mcp.deinit();
+    try mcp.register();
     var bus: core.Bus = .init(gpa, io);
     defer bus.deinit();
     var runtime: core.Runtime = .init(gpa, io, &bus, &registry, env, .{
@@ -220,7 +236,10 @@ fn serve(gpa: std.mem.Allocator, arena: std.mem.Allocator, io: std.Io, env: *con
         .resources = resources.resources(),
     });
     defer runtime.deinit();
+    // Run before runtime.deinit: MCP servers stop calling into the runtime.
+    defer mcp.shutdownAll();
     inspector.runtime = &runtime;
+    mcp.host.asker = runtime.asker();
     // A standalone server leaves the sessions to the shared one.
     if (options.parent == null) _ = try runtime.restore();
 
@@ -298,6 +317,8 @@ const usage =
     \\               undo the file changes of the latest reply (newest session)
     \\  usage [--all | --session <id>]
     \\               tokens and cost of this project's sessions (or all, or one)
+    \\  mcp [auth <server> | logout <server>]
+    \\               list this project's MCP servers, sign in to one, or sign out
     \\  auth login <provider>
     \\               save an API key from a hidden prompt or stdin
     \\  --version    print version

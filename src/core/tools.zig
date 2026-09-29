@@ -8,6 +8,7 @@ const artifact_store = @import("artifacts.zig");
 const Hooks = @import("hooks.zig").Hooks;
 const timed = @import("tools_timed.zig");
 const execution = @import("tools_execution.zig");
+const dispatch = @import("tools_dispatch.zig");
 const Bus = @import("bus.zig").Bus;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -177,6 +178,8 @@ pub const Task = struct {
     started: bool = false,
     /// `text` holds the call's final, budgeted result.
     finished: bool = false,
+    /// The deferred tool a dispatch call runs.
+    target: ?plugin.tool.Tool = null,
     /// Cancel protection before a non-cancellable tool started; restored
     /// once it has returned.
     shielded: ?Io.CancelProtection = null,
@@ -184,19 +187,24 @@ pub const Task = struct {
     /// hooks after it are cancelled.
     kept: bool = false,
 
-    /// The tool that runs.
+    /// The tool that runs: a dispatch call's target once it is known.
     pub fn tool(t: *Task) ?plugin.tool.Tool {
+        if (t.target) |target| return target;
         for (t.tools) |candidate| if (std.mem.eql(u8, candidate.name, t.call.name)) return candidate;
         return null;
     }
 
     fn sequential(t: *Task) bool {
         const found = t.tool() orelse return false;
+        if (found.dispatch) if (dispatch.named(t)) |target| return target.execution_mode == .sequential;
         return found.execution_mode == .sequential;
     }
 
+    /// The call as the permission gate sees it: a dispatch call as a call
+    /// of its target.
     pub fn gateCall(t: *Task) Call {
-        return t.call;
+        const target = t.target orelse return t.call;
+        return .{ .id = t.call.id, .name = target.name, .arguments = t.call.arguments };
     }
 
     pub fn emit(t: *Task, ty: []const u8, data: anytype) !void {
@@ -295,9 +303,14 @@ pub const Task = struct {
     }
 };
 
+/// Why `args` do not fit the tool's schema, shared with the dispatch helpers.
+pub const checkArgs = execution.check;
+
 test {
     _ = timed;
+    _ = dispatch;
     _ = @import("tools_test.zig");
     _ = @import("tools_budget_test.zig");
+    _ = @import("tools_dispatch_test.zig");
     _ = @import("tools_cancel_test.zig");
 }

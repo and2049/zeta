@@ -3,6 +3,7 @@ const std = @import("std");
 const plugin = @import("plugin");
 const schema = @import("schema.zig");
 const timed = @import("tools_timed.zig");
+const dispatch = @import("tools_dispatch.zig");
 const Task = @import("tools.zig").Task;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -13,21 +14,26 @@ pub fn perform(t: *Task) !void {
         t.text = "Tool call arguments may be truncated (output limit reached); not executed.";
         return;
     }
-    const found = t.tool() orelse {
+    var found = t.tool() orelse {
         t.text = try std.fmt.allocPrint(a, "Tool '{s}' is not available.", .{t.call.name});
         return;
     };
-    const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, if (t.call.arguments.len == 0) "{}" else t.call.arguments, .{}) catch {
+    var parsed = std.json.parseFromSliceLeaky(std.json.Value, a, if (t.call.arguments.len == 0) "{}" else t.call.arguments, .{}) catch {
         t.text = "Invalid tool arguments: malformed JSON.";
         return;
     };
-    const shape = std.json.parseFromSliceLeaky(std.json.Value, a, found.input_schema, .{}) catch {
+    var shape = std.json.parseFromSliceLeaky(std.json.Value, a, found.input_schema, .{}) catch {
         t.text = "Tool input schema is malformed.";
         return;
     };
-    if (try check(a, shape, parsed)) |problem| {
+    if (try check(a, found, shape, parsed)) |problem| {
         t.text = try std.fmt.allocPrint(a, "Invalid tool arguments{s}", .{problem});
         return;
+    }
+    if (found.dispatch) {
+        // From here on the call is the deferred tool's: its schema,
+        // hooks and permissions.
+        found = try dispatch.resolve(t, &parsed, &shape) orelse return;
     }
     const pre = try t.hooks.toolPre(a, t.io, .{ .id = t.call.id, .name = found.name, .args = parsed });
     if (pre.blocked) |reason| {
@@ -92,13 +98,16 @@ pub fn perform(t: *Task) !void {
 /// no longer match the tool's schema.
 fn revalidate(t: *Task, shape: std.json.Value, args: std.json.Value) !bool {
     const a = t.state.allocator();
-    const problem = (try check(a, shape, args)) orelse return true;
+    const problem = (try check(a, t.tool().?, shape, args)) orelse return true;
     t.text = try std.fmt.allocPrint(a, "Tool arguments rewritten by a hook are invalid{s}", .{problem});
     return false;
 }
 
-/// Why `args` do not fit the tool's schema (": ..." text), or null.
-pub fn check(a: Allocator, shape: std.json.Value, args: std.json.Value) !?[]const u8 {
+/// Why `args` do not fit the tool's schema (": ..." text), or null. A tool
+/// that checks its own arguments (`schema_check = .partial`) only gets an
+/// object check here: the host could misjudge keywords it does not know.
+pub fn check(a: Allocator, tool: plugin.tool.Tool, shape: std.json.Value, args: std.json.Value) !?[]const u8 {
+    if (tool.schema_check == .partial) return if (args == .object) null else ": expected an object";
     const issues = try schema.validate(a, shape, args);
     if (issues.len == 0) return null;
     return try std.fmt.allocPrint(a, " at '{s}': {s}", .{ issues[0].path, issues[0].message });

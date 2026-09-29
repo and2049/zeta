@@ -68,6 +68,7 @@ fn invoke(t: *Task, found: plugin.tool.Tool, args: std.json.Value) anyerror!plug
         .ctx = t,
         .session = t.session,
         .remaining_ms = @intCast(@max(remainingMs(t, found), 0)),
+        .tools = t.tools,
         .onProgress = progress,
         .onPermit = if (t.approval != null) permit else null,
         .onBackup = if (t.artifacts != null) backup else null,

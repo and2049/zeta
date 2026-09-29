@@ -28,6 +28,7 @@ pub const runtime_model = @import("runtime_model.zig");
 pub const inspect = @import("inspect.zig");
 pub const commands = @import("commands.zig");
 pub const compaction = @import("compaction.zig");
+pub const elicitation = @import("elicitation.zig");
 pub const usage = @import("usage.zig");
 pub const session_search = @import("session_search.zig");
 pub const undo = @import("undo.zig");

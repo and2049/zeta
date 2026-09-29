@@ -107,8 +107,8 @@ test "declared targets pick their argument and undeclared tools match any patter
         try std.testing.expectEqualStrings(case.value, resource.pattern);
         try std.testing.expect(resource.external == null);
     }
-    const plain: plugin.tool.Tool = .{ .name = "plain_x", .description = "", .input_schema = "{}", .execute = stub };
+    const plain: plugin.tool.Tool = .{ .name = "mcp_x", .description = "", .input_schema = "{}", .execute = stub };
     const resource = try resolve(a, std.testing.io, "/", plain, .{ .object = .empty });
-    try std.testing.expectEqualStrings("plain_x", resource.action);
+    try std.testing.expectEqualStrings("mcp_x", resource.action);
     try std.testing.expectEqualStrings("*", resource.pattern);
 }

@@ -33,6 +33,8 @@ Rules are checked in order and the last match wins, so put broad rules first and
     // Only fetch from the docs site.
     { "action": "webfetch", "pattern": "*", "effect": "deny" },
     { "action": "webfetch", "pattern": "https://ziglang.org/*", "effect": "allow" },
+    // Tools from MCP servers use their tool name as the action.
+    { "action": "mcp__github__*", "pattern": "*", "effect": "ask" }
   ]
 }
 ```

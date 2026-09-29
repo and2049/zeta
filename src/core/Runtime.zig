@@ -60,6 +60,9 @@ ids: proto.id.Generator = .{},
 mutex: Io.Mutex = .init,
 sessions: std.StringHashMapUnmanaged(*Entry) = .empty,
 broker: ?permissions.Broker = null,
+/// Questions plugins ask the user; made on first use (it keeps a pointer
+/// to `ids`, so not before the runtime has its place).
+asks: ?@import("elicitation.zig").Asks = null,
 resources: ?Resources = null,
 
 pub const Entry = struct {
@@ -137,6 +140,7 @@ pub fn deinit(rt: *Runtime) void {
         rt.gpa.destroy(e.*);
     }
     if (rt.broker) |*broker| broker.deinit();
+    if (rt.asks) |*asks| asks.deinit();
     rt.sessions.deinit(rt.gpa);
 }
 
@@ -146,6 +150,9 @@ pub const createSessionWithOptionsOwned = @import("runtime_create.zig").createSe
 pub const fork = @import("runtime_create.zig").forkSession;
 pub const replyPermission = @import("runtime_create.zig").replyPermission;
 pub const disconnectPermissions = @import("runtime_create.zig").disconnectPermissions;
+pub const asker = @import("runtime_asks.zig").asker;
+pub const replyElicitation = @import("runtime_asks.zig").reply;
+pub const elicitations = @import("runtime_asks.zig").list;
 
 pub const restore = @import("runtime_restore.zig").restore;
 pub const move = @import("session_move.zig").move;
@@ -264,6 +271,8 @@ fn runOnce(rt: *Runtime, entry: *Entry) !void {
     defer @import("runtime_state.zig").freeOverrides(rt, run_options);
     var cfg = try config.loadWithOptions(arena, rt.io, rt.env, rt.config_dir, location, run_options);
     if (selected) cfg.model = run_options.model;
+    // Plugins connecting in the background (e.g. MCP servers) get a bounded
+    // chance to be part of this run.
     _ = try rt.registry.activate(arena, location);
     try rt.registry.settle(location);
     try @import("runtime_model.zig").fill(rt, arena, location, &cfg);
@@ -275,8 +284,10 @@ fn runOnce(rt: *Runtime, entry: *Entry) !void {
     const view = try @import("runtime_view.zig").assemble(rt, arena, location, cfg);
     for (view.diagnostics) |message| std.log.warn("{s}: {s}", .{ location, message });
     if (view.config_invalid) return error.InvalidPluginConfig;
-    const declarations = try arena.alloc(plugin.provider.ToolDecl, view.tools.len);
-    for (view.tools, declarations) |tool, *decl| decl.* = tool.declaration();
+    // Deferred tools run only through a dispatch tool.
+    var offered: std.ArrayList(plugin.provider.ToolDecl) = .empty;
+    for (view.tools) |tool| if (!tool.deferred) try offered.append(arena, tool.declaration());
+    const declarations = offered.items;
     rt.mutex.lockUncancelable(rt.io);
     if (rt.broker == null) {
         rt.broker = permissions.Broker.init(rt.gpa, rt.io, rt.bus, &rt.ids);

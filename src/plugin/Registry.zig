@@ -90,7 +90,7 @@ pub fn deinit(r: *Registry) void {
 
 /// Plugin ids are unique among live and staged plugins of one scope: the
 /// built-in layer, the user layer, or one project location. The same
-/// project plugin can run in many projects.
+/// project plugin (an MCP server) can run in many projects.
 pub fn addPlugin(r: *Registry, new: Plugin) !Owner {
     return r.insert(new, .live, null);
 }
@@ -188,7 +188,10 @@ pub fn addTool(r: *Registry, owner: Owner, new: tool_api.Tool) !void {
     // provider advertisement or execution.
     const parsed = try std.json.parseFromSlice(std.json.Value, r.gpa, new.input_schema, .{});
     defer parsed.deinit();
-    try schema.check(parsed.value);
+    switch (new.schema_check) {
+        .strict => try schema.check(parsed.value),
+        .partial => if (parsed.value != .object) return error.InvalidSchema,
+    }
     try new.checkPermission(parsed.value);
     try r.add(tool_api.Tool, &r.tools, owner, new);
 }

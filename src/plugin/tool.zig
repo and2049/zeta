@@ -57,6 +57,9 @@ pub const ProgressSink = struct {
     /// Milliseconds left of the call's deadline when it started; 0 when
     /// unknown.
     remaining_ms: u64 = 0,
+    /// Every tool the run can run, deferred ones included; borrowed for the
+    /// call.
+    tools: []const Tool = &.{},
     onProgress: *const fn (ctx: *anyopaque, partial_result: []const u8) anyerror!void,
     /// Re-runs the host's permission check for this call as if it had been
     /// made with `args` (e.g. a redirect target). Null means no policy gate.
@@ -100,6 +103,17 @@ pub const Tool = struct {
     cancellable: bool = true,
     result_budget: ResultBudget = .{},
     execution_mode: ExecutionMode = .parallel,
+    /// `strict`: the schema may use only keywords the host validates.
+    /// `partial`: any JSON Schema object; the host only checks that the
+    /// arguments are an object and the tool checks them (tools served by
+    /// another program, which knows its own schema).
+    schema_check: enum { strict, partial } = .strict,
+    /// Runnable, but not offered to the model: a `dispatch` tool reaches it.
+    deferred: bool = false,
+    /// Takes `{"name", "arguments"}` and runs the deferred tool `name` with
+    /// those arguments, through the same schema check, hooks and
+    /// permissions as a direct call. Its own `execute` is not used.
+    dispatch: bool = false,
     ctx: ?*anyopaque = null,
     /// `arena` owns transient data for this invocation, `location` is the
     /// project root, and `args` is the parsed, validated JSON input. The

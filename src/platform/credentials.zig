@@ -46,13 +46,19 @@ pub const Listing = struct {
     }
 };
 
-/// Credential ids are provider ids.
+/// Ids are provider ids, or `mcp:<server>` for an MCP server's sign-in.
 pub fn validId(id: []const u8) bool {
     if (id.len == 0 or id.len > 128) return false;
     for (id) |c| {
-        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_' and c != '.') return false;
+        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_' and c != '.' and c != ':') return false;
     }
     return true;
+}
+
+/// A provider's id: never `:`, so a provider credential cannot replace an
+/// MCP server's sign-in.
+fn validProviderId(id: []const u8) bool {
+    return validId(id) and std.mem.indexOfScalar(u8, id, ':') == null;
 }
 
 pub fn validKey(key: []const u8) bool {
@@ -81,10 +87,14 @@ fn validate(root: std.json.Value) !std.json.ObjectMap {
             if (value.object.count() != 5 or access != .string or !validKey(access.string) or
                 refresh != .string or !validKey(refresh.string) or expires != .integer or
                 (account != .null and (account != .string or !validKey(account.string)))) return error.InvalidCredentials;
+        } else if (std.mem.eql(u8, kind.string, "mcp")) {
+            if (!mcp.validEntry(value.object)) return error.InvalidCredentials;
         } else return error.InvalidCredentials;
     }
     return root.object;
 }
+
+pub const mcp = @import("credentials_mcp.zig");
 
 pub fn load(arena: Allocator, io: Io, data_dir: []const u8) !std.json.ObjectMap {
     const path = try std.fs.path.join(arena, &.{ data_dir, file_name });
@@ -157,7 +167,7 @@ pub fn list(allocator: Allocator, io: Io, data_dir: []const u8) !Listing {
 /// Replaces or inserts one API key. Inputs are borrowed, never retained.
 /// Concurrent writers (including other processes) serialize on a sidecar lock.
 pub fn putApiKey(allocator: Allocator, io: Io, data_dir: []const u8, provider_id: []const u8, key: []const u8) !void {
-    if (!validId(provider_id)) return error.InvalidProviderId;
+    if (!validProviderId(provider_id)) return error.InvalidProviderId;
     if (!validKey(key)) return error.InvalidApiKey;
     var arena: std.heap.ArenaAllocator = .init(allocator);
     defer arena.deinit();
@@ -239,7 +249,7 @@ fn validOAuth(value: OAuthValue) bool {
 
 /// Atomically persists OAuth tokens, with the same cross-process writer lock as API keys.
 pub fn putOAuth(allocator: Allocator, io: Io, data_dir: []const u8, provider_id: []const u8, value: OAuthValue) !void {
-    if (!validId(provider_id)) return error.InvalidProviderId;
+    if (!validProviderId(provider_id)) return error.InvalidProviderId;
     if (!validOAuth(value)) return error.InvalidOAuthCredential;
     var arena: std.heap.ArenaAllocator = .init(allocator);
     defer arena.deinit();
@@ -335,7 +345,7 @@ test "invalid input and malformed on-disk credentials never overwrite" {
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const data = buf[0..try tmp.dir.realPath(io, &buf)];
     try std.testing.expectError(error.InvalidProviderId, putApiKey(a, io, data, "a/b", "key"));
-    try std.testing.expectError(error.InvalidProviderId, putApiKey(a, io, data, "provider:docs", "key"));
+    try std.testing.expectError(error.InvalidProviderId, putApiKey(a, io, data, "mcp:docs", "key"));
     try std.testing.expectError(error.InvalidApiKey, putApiKey(a, io, data, "a", "bad\nkey"));
     const path = try std.fs.path.join(a, &.{ data, file_name });
     defer a.free(path);

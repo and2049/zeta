@@ -26,7 +26,20 @@ pub const Loader = struct {
     settle: ?*const fn (ctx: ?*anyopaque, io: Io, location: []const u8) Io.Cancelable!void = null,
     /// Live state of what it loaded for `location`, as JSON in `arena`.
     status: ?*const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, location: []const u8) anyerror!std.json.Value = null,
+    /// Starts one named thing for `location` again; false if it has no such
+    /// thing.
+    retry: ?*const fn (ctx: ?*anyopaque, io: Io, location: []const u8, name: []const u8) anyerror!bool = null,
+    /// Starts signing in to one named thing for `location` (an MCP server):
+    /// what the user opens, in `arena`. Null if it has no such thing. The
+    /// sign-in finishes in the background and connects the thing again.
+    login: ?*const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, location: []const u8, name: []const u8) anyerror!?SignIn = null,
+    /// Forgets the named thing's sign-in and connects it again; false if it
+    /// has no such thing.
+    logout: ?*const fn (ctx: ?*anyopaque, io: Io, location: []const u8, name: []const u8) anyerror!bool = null,
 };
+
+/// `id` names this sign-in in status listings.
+pub const SignIn = struct { id: u64 = 0, url: []const u8, instructions: []const u8 };
 
 /// A failure recorded for a scope (`location` null: the user layer).
 pub const Problem = struct { loader: []const u8, location: ?[]const u8, plugin: []const u8, message: []const u8 };
@@ -110,6 +123,25 @@ pub fn statuses(l: *Loaders, io: Io, arena: Allocator, location: []const u8) !st
         try out.put(arena, loader.name, try read(loader.ctx, arena, io, location));
     };
     return out;
+}
+
+/// Null when there is no such loader or it cannot retry.
+pub fn retry(l: *Loaders, io: Io, loader_name: []const u8, location: []const u8, name: []const u8) !?bool {
+    const loader = l.find(io, loader_name) orelse return null;
+    const again = loader.retry orelse return null;
+    return try again(loader.ctx, io, location, name);
+}
+
+pub fn login(l: *Loaders, io: Io, arena: Allocator, loader_name: []const u8, location: []const u8, name: []const u8) !?SignIn {
+    const loader = l.find(io, loader_name) orelse return null;
+    const start = loader.login orelse return null;
+    return try start(loader.ctx, arena, io, location, name);
+}
+
+pub fn logout(l: *Loaders, io: Io, loader_name: []const u8, location: []const u8, name: []const u8) !?bool {
+    const loader = l.find(io, loader_name) orelse return null;
+    const forget = loader.logout orelse return null;
+    return try forget(loader.ctx, io, location, name);
 }
 
 /// Loaders are only ever added, before serving, so a copy of the slice
@@ -238,7 +270,7 @@ test "activate loads each scope once; reload loads again and replaces problems" 
     try testing.expectEqual(@as(usize, 0), (try l.problemsAt(testing.io, a, "/p")).len);
 }
 
-test "settle and status reach the named loader" {
+test "settle, status and retry reach the named loader" {
     var l: Loaders = .{ .gpa = testing.allocator };
     defer l.deinit();
     const Fake = struct {
@@ -253,9 +285,12 @@ test "settle and status reach the named loader" {
         fn status(_: ?*anyopaque, _: Allocator, _: Io, location: []const u8) anyerror!std.json.Value {
             return .{ .string = location };
         }
+        fn retry(_: ?*anyopaque, _: Io, _: []const u8, name: []const u8) anyerror!bool {
+            return std.mem.eql(u8, name, "known");
+        }
     };
     var fake: Fake = .{};
-    try l.add(testing.io, .{ .name = "servers", .ctx = &fake, .load = Fake.load, .settle = Fake.settle, .status = Fake.status });
+    try l.add(testing.io, .{ .name = "servers", .ctx = &fake, .load = Fake.load, .settle = Fake.settle, .status = Fake.status, .retry = Fake.retry });
     try l.add(testing.io, .{ .name = "files", .load = Fake.load });
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
@@ -264,4 +299,7 @@ test "settle and status reach the named loader" {
     try testing.expectEqualStrings("/p", (try l.status(testing.io, arena.allocator(), "servers", "/p")).?.string);
     try testing.expect(try l.status(testing.io, arena.allocator(), "files", "/p") == null);
     try testing.expectEqual(@as(usize, 1), (try l.statuses(testing.io, arena.allocator(), "/p")).count());
+    try testing.expect((try l.retry(testing.io, "servers", "/p", "known")).?);
+    try testing.expect(!(try l.retry(testing.io, "servers", "/p", "other")).?);
+    try testing.expect(try l.retry(testing.io, "files", "/p", "known") == null);
 }

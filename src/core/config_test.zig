@@ -174,3 +174,34 @@ test "request environment supersedes stale daemon selectors, including absent va
     try std.testing.expectEqualStrings("fresh/model", chosen.model.?);
     try std.testing.expectEqual(Source.env, chosen.source("model").?);
 }
+
+test "mcp servers merge across layers and their headers and environment are redacted in the view" {
+    const io = std.testing.io;
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var base_buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const base = base_buf[0..try tmp.dir.realPath(io, &base_buf)];
+    try tmp.dir.createDirPath(io, "cfg");
+    try tmp.dir.createDirPath(io, "proj/.zeta");
+    try tmp.dir.writeFile(io, .{ .sub_path = "cfg/zeta.jsonc", .data =
+        \\{ "mcp": { "servers": { "git": { "type": "local", "command": ["git-mcp"], "environment": { "TOKEN": "{env:KEY}" } } } } }
+    });
+    try tmp.dir.writeFile(io, .{ .sub_path = "proj/.zeta/zeta.jsonc", .data =
+        \\{ "mcp": { "servers": { "docs": { "type": "remote", "url": "https://docs.test/mcp", "headers": { "Authorization": "Bearer x" } } } } }
+    });
+    var env: std.process.Environ.Map = .init(std.testing.allocator);
+    defer env.deinit();
+    try env.put("KEY", "sekrit");
+    const cfg = try load(arena, io, &env, try std.fs.path.join(arena, &.{ base, "cfg" }), try std.fs.path.join(arena, &.{ base, "proj" }));
+    const servers = cfg.mcp.object.get("servers").?.object;
+    try std.testing.expectEqualStrings("sekrit", servers.get("git").?.object.get("environment").?.object.get("TOKEN").?.string);
+    try std.testing.expect(servers.get("docs") != null);
+    try std.testing.expectEqual(Source.project, cfg.source("mcp.servers.docs.url").?);
+    const shown = try std.json.Stringify.valueAlloc(arena, try @import("config_edit.zig").view(arena, cfg), .{});
+    try std.testing.expect(std.mem.indexOf(u8, shown, "sekrit") == null);
+    try std.testing.expect(std.mem.indexOf(u8, shown, "Bearer") == null);
+    try std.testing.expect(std.mem.indexOf(u8, shown, "https://docs.test/mcp") != null);
+}

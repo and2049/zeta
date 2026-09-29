@@ -4,9 +4,10 @@ Start with what zeta reports about itself, then the logs.
 
 ## Where to look
 
-1. **Registry diagnostics.** `GET /registry?location=<project>` (or `zeta_inspect` `diagnostics`) lists load failures and warnings for plugins: a `hooks.json` that does not parse, a skipped hook matcher. A plugin that failed to reload keeps its previous version until fixed.
+1. **Registry diagnostics.** `GET /registry?location=<project>` (or `zeta_inspect` `diagnostics`) lists load failures and warnings for plugins: a `hooks.json` that does not parse, a skipped hook matcher, an MCP server that failed. A plugin that failed to reload keeps its previous version until fixed.
 2. **Config diagnostics.** `GET /config?location=<project>` shows each effective value with the layer that set it, and lists ignored keys and invalid `plugin.<id>` settings.
-4. **Server log.** A server started by a client writes to `$XDG_STATE_HOME/zeta/server.log` (default `~/.local/state/zeta/server.log`), emptied each time one starts; `zeta serve` writes to its terminal instead. It has provider failures, retries, hook failures, skipped skills and catalog refresh errors.
+3. **MCP status.** `GET /mcp` (`zeta mcp` for MCP) gives each server's status and last error.
+4. **Server log.** A server started by a client writes to `$XDG_STATE_HOME/zeta/server.log` (default `~/.local/state/zeta/server.log`), emptied each time one starts; `zeta serve` writes to its terminal instead. It has provider failures, retries, hook and MCP failures, skipped skills and catalog refresh errors.
 5. **The session log.** The `system` lines in a session's JSONL show exactly what the model was told, and message lines what it did ([sessions](sessions.md)).
 
 A `--standalone` server keeps its logs in its own private directory, removed when it stops.
@@ -16,6 +17,7 @@ A `--standalone` server keeps its logs in its own private directory, removed whe
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | A change to config, `AGENTS.md`, a skill or a template does not show | the run started before the change | send the next prompt; these are read per run |
+| A changed `hooks.json` or MCP server does not show | not reloaded, or the reload failed (`zeta reload` exits 1 and names the plugin) | fix it, `zeta reload`, then check diagnostics |
 | A rebuilt or upgraded `zeta` behaves like the old one | the shared server is still the old binary | `zeta server stop`; the next client starts the new one |
 | Runs stop with `InvalidPluginConfig` | `plugin.<id>` fails the schema that plugin declared | fix the value; `GET /config` names it |
 | A model is missing from `GET /models` | its provider has no key, saved credential or configured endpoint | `zeta auth login <provider>` or `provider.<id>.options` |

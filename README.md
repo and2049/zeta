@@ -3,7 +3,7 @@
 A small coding agent in Zig, with no dependencies beyond the standard library.
 
 - One background server per user; `zeta run` and scripts talk to it over localhost HTTP + SSE.
-- Everything in the server is a plugin: tools, providers, hooks.
+- Everything in the server is a plugin: tools, providers, hooks, MCP servers.
 - Status: early development.
 
 ## Quick start
@@ -51,7 +51,7 @@ zeta reload                          # reload plugins for this project
 - [Configuration](docs/configuration.md), [providers](docs/providers.md), [credentials](docs/credentials.md)
 - [Prompt templates](docs/commands.md), [skills](docs/skills.md)
 - [Tools](docs/tools.md), [permissions](docs/permissions.md), [hooks](docs/hooks.md)
-- [compaction](docs/compaction.md)
+- [MCP](docs/mcp.md), [compaction](docs/compaction.md)
 - [HTTP API and events](docs/protocol.md)
 
 ## Build

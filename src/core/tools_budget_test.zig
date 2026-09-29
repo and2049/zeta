@@ -237,3 +237,29 @@ test "unknown tool error uses the default budget" {
     try std.testing.expectEqual(@as(usize, 50 * 1024), results[0].text.len);
     try std.testing.expect(std.mem.endsWith(u8, results[0].text, budget.notice));
 }
+
+test "a tool that checks its own arguments gets any object, whatever its schema says" {
+    const a = std.testing.allocator;
+    const io = std.testing.io;
+    var bus: Bus = .init(a, io);
+    defer bus.deinit();
+    const Parts = struct {
+        fn run(_: ?*anyopaque, arena: Allocator, _: Io, _: []const u8, args: std.json.Value, _: plugin.tool.ProgressSink) !plugin.tool.Result {
+            return .{ .text = try std.fmt.allocPrint(arena, "kind={s}", .{args.object.get("kind").?.string}) };
+        }
+    };
+    // Both branches ignore `$ref` locally, so a strict check would reject
+    // every value as matching both.
+    const schema =
+        \\{"type":"object","properties":{"kind":{"oneOf":[{"$ref":"#/$defs/a"},{"$ref":"#/$defs/b"}]}},"$defs":{"a":{"const":"a"},"b":{"const":"b"}}}
+    ;
+    const tool: plugin.tool.Tool = .{ .name = "remote", .description = "", .input_schema = schema, .schema_check = .partial, .execute = Parts.run };
+    var state: std.heap.ArenaAllocator = .init(a);
+    defer state.deinit();
+    const outcomes = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{
+        .{ .id = "ok", .name = "remote", .arguments = "{\"kind\":\"a\"}" },
+        .{ .id = "bad", .name = "remote", .arguments = "[1]" },
+    }, false, null, null);
+    try std.testing.expectEqualStrings("kind=a", outcomes[0].text);
+    try std.testing.expectEqualStrings("Invalid tool arguments: expected an object", outcomes[1].text);
+}

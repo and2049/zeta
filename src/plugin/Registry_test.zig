@@ -166,9 +166,13 @@ test "tool registration rejects malformed and unsupported schema" {
     try testing.expectError(error.SyntaxError, r.addTool(owner, .{ .name = "x", .description = "x", .input_schema = "not JSON", .execute = stubExecute }));
     try testing.expectError(error.InvalidSchema, r.addTool(owner, .{ .name = "x", .description = "x", .input_schema = "{\"$ref\":\"#/foo\"}", .execute = stubExecute }));
     try testing.expectError(error.InvalidSchema, r.addPlugin(.{ .id = "y", .config_schema = "{\"$ref\":\"#/foo\"}" }));
+    // A tool that checks its own arguments may use any schema object.
+    try r.addTool(owner, .{ .name = "remote", .description = "", .input_schema = "{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"string\",\"format\":\"uri\"}}}", .schema_check = .partial, .execute = stubExecute });
+    try testing.expectError(error.InvalidSchema, r.addTool(owner, .{ .name = "remote2", .description = "", .input_schema = "[]", .schema_check = .partial, .execute = stubExecute }));
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     try testing.expect((try r.view(arena.allocator(), null)).tool("x") == null);
+    try testing.expect((try r.view(arena.allocator(), null)).tool("remote") != null);
 }
 
 test "swap shows staged replacements and removes others in one step, in staging order" {
@@ -203,8 +207,8 @@ test "swap shows staged replacements and removes others in one step, in staging 
 test "prompt sections apply where their plugin does and go with it" {
     var r: Registry = .init(testing.allocator, testing.io);
     defer r.deinit();
-    const owner = try r.addPlugin(.{ .id = "project:docs", .layer = .project, .location = "/p" });
-    try r.addSection(owner, .{ .name = "project:docs", .text = "Use the docs tools for API questions." });
+    const owner = try r.addPlugin(.{ .id = "mcp:docs", .layer = .project, .location = "/p" });
+    try r.addSection(owner, .{ .name = "mcp:docs", .text = "Use the docs tools for API questions." });
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     try testing.expectEqual(@as(usize, 0), (try r.view(arena.allocator(), "/elsewhere")).sections.len);

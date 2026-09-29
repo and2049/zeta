@@ -85,6 +85,82 @@ pub fn reload(s: *Server, c: *Ctx) !void {
     return c.json(.ok, .{ .failures = failures });
 }
 
+/// `?location=` or `?session=` → `{"<key>": [...]}`: the named loader's
+/// status (MCP servers). Asking loads the location if nothing
+/// has yet.
+pub fn loaderStatus(s: *Server, c: *Ctx, loader: []const u8, comptime key: []const u8) !void {
+    if (c.method != .GET) return c.fail(.method_not_allowed, "method not allowed");
+    const ctx = try context(s, c);
+    _ = try s.runtime.registry.activate(c.arena, ctx.location);
+    const list = (try s.runtime.registry.loaders.status(c.io, c.arena, loader, ctx.location)) orelse std.json.Value{ .array = .init(c.arena) };
+    var result: std.json.ObjectMap = .empty;
+    try result.put(c.arena, key, list);
+    return c.json(.ok, std.json.Value{ .object = result });
+}
+
+/// `{"location": "/abs/project"}`: starts the named thing of that loader
+/// again (connects an MCP server).
+pub fn loaderRetry(s: *Server, c: *Ctx, loader: []const u8, name: []const u8, missing: []const u8) !void {
+    if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
+    const body = try c.bodyJson(struct { location: []const u8 });
+    const location = try core.location.resolve(c.arena, c.io, body.location);
+    _ = try s.runtime.registry.activate(c.arena, location);
+    const found = (try s.runtime.registry.loaders.retry(c.io, loader, location, name)) orelse false;
+    if (!found) return c.fail(.not_found, missing);
+    return c.json(.ok, .{ .ok = true });
+}
+
+/// `POST {"location"}` starts signing in to the named thing of that loader
+/// (an MCP server) → `{url, instructions}`; `DELETE ?location=` forgets
+/// its sign-in. Either way it connects again.
+pub fn loaderAuth(s: *Server, c: *Ctx, loader: []const u8, name: []const u8, missing: []const u8) !void {
+    const location = switch (c.method) {
+        .POST => try core.location.resolve(c.arena, c.io, (try c.bodyJson(struct { location: []const u8 })).location),
+        .DELETE => try core.location.resolve(c.arena, c.io, (try query.get(c.arena, c.query, "location")) orelse return c.fail(.bad_request, "missing location")),
+        else => return c.fail(.method_not_allowed, "method not allowed"),
+    };
+    _ = try s.runtime.registry.activate(c.arena, location);
+    const loaders = &s.runtime.registry.loaders;
+    if (c.method == .DELETE) {
+        const found = loaders.logout(c.io, loader, location, name) catch |err| switch (err) {
+            error.McpSignInUnavailable => return c.fail(.bad_request, "this server does not sign in"),
+            else => |e| return e,
+        };
+        if (!(found orelse false)) return c.fail(.not_found, missing);
+        return c.json(.ok, .{ .ok = true });
+    }
+    const started = loaders.login(c.io, c.arena, loader, location, name) catch |err| switch (err) {
+        error.McpSignInUnavailable => return c.fail(.bad_request, "this server does not sign in"),
+        else => |e| return e,
+    };
+    const sign_in = started orelse return c.fail(.not_found, missing);
+    return c.json(.ok, sign_in);
+}
+
+/// `GET ?location=`: the questions plugins have open for the project.
+pub fn elicitations(s: *Server, c: *Ctx) !void {
+    if (c.method != .GET) return c.fail(.method_not_allowed, "method not allowed");
+    const raw = (try query.get(c.arena, c.query, "location")) orelse return c.fail(.bad_request, "missing location");
+    const location = try core.location.resolve(c.arena, c.io, raw);
+    return c.json(.ok, .{ .elicitations = try s.runtime.elicitations(c.arena, location) });
+}
+
+/// `POST {"action": "accept"|"decline"|"cancel", "content"?: {…}}`.
+pub fn elicitationReply(s: *Server, c: *Ctx, id: []const u8) !void {
+    if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
+    const body = try c.bodyJson(struct { action: []const u8, content: ?std.json.Value = null });
+    const action = std.meta.stringToEnum(@import("plugin").ask.Action, body.action) orelse return c.fail(.bad_request, "invalid action");
+    if (action == .accept and (body.content == null or body.content.? != .object)) return c.fail(.bad_request, "accept needs an object as content");
+    const content = if (body.content) |v| try std.json.Stringify.valueAlloc(c.arena, v, .{}) else null;
+    var problem: []const u8 = "";
+    const found = s.runtime.replyElicitation(c.arena, id, action, content, &problem) catch |err| switch (err) {
+        error.InvalidContent => return c.fail(.bad_request, problem),
+        else => |e| return e,
+    };
+    if (!found) return c.fail(.not_found, "question not pending");
+    return c.json(.ok, .{ .ok = true });
+}
+
 pub fn patchConfig(s: *Server, c: *Ctx) !void {
     const body = try c.bodyJson(struct {
         target: core.config_edit.Target,

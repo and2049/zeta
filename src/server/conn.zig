@@ -204,6 +204,7 @@ fn handleOne(
             error.ConfigTooLarge, error.CredentialsTooLarge => .payload_too_large,
             error.SessionNotFound, error.MessageNotFound => .not_found,
             error.SessionBusy => .conflict,
+            error.McpPkceUnsupported => .bad_gateway,
             else => .internal_server_error,
         };
         c.fail(status, @errorName(err)) catch return false;

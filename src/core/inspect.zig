@@ -53,6 +53,7 @@ pub fn registry(rt: *Runtime, arena: Allocator, location: []const u8, cfg: confi
     var commands: std.ArrayList(Value) = .empty;
     for (listing.commands) |c| try commands.append(arena, try asValue(arena, .{ .name = c.name, .description = c.description, .argument_hint = c.argument_hint, .source = c.source, .path = c.path }));
     try result.object.put(arena, "commands", .{ .array = commands.toManaged(arena) });
+    // Live state of plugins loaded from outside the binary (e.g. `mcp`).
     var statuses = try rt.registry.loaders.statuses(rt.io, arena, location);
     for (statuses.keys(), statuses.values()) |key, value| try result.object.put(arena, key, value);
     statuses.deinit(arena);

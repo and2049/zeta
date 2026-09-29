@@ -22,11 +22,11 @@ const modules = [_]ModuleSpec{
 
 // Embedded files are enumerated here so adding one requires explicitly shipping it.
 const doc_files = [_][]const u8{
-    "README.md",          "configuration.md", "tools.md",     "permissions.md",
-    "credentials.md",     "protocol.md",      "skills.md",    "examples/zeta.jsonc",
-    "providers.md",       "SKILL.md",         "commands.md",  "hooks.md",
-    "compaction.md",      "concepts.md",      "extending.md", "sessions.md",
-    "troubleshooting.md",
+    "README.md",      "configuration.md",   "tools.md",    "permissions.md",
+    "credentials.md", "protocol.md",        "skills.md",   "examples/zeta.jsonc",
+    "providers.md",   "SKILL.md",           "commands.md", "hooks.md",
+    "compaction.md",  "mcp.md",             "concepts.md", "extending.md",
+    "sessions.md",    "troubleshooting.md",
 };
 
 pub fn build(b: *std.Build) void {

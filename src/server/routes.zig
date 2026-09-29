@@ -24,7 +24,10 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
 
     if (seg.len == 2 and std.mem.eql(u8, seg[0], "server") and std.mem.eql(u8, seg[1], "stop")) return admin.stop(s, c);
     if (seg.len == 2 and std.mem.eql(u8, seg[0], "registry") and std.mem.eql(u8, seg[1], "reload")) return admin.reload(s, c);
+    if (seg.len == 1 and std.mem.eql(u8, seg[0], "mcp")) return admin.loaderStatus(s, c, "mcp", "servers");
     // Server names may be any string: the client percent-encodes them.
+    if (seg.len == 3 and std.mem.eql(u8, seg[0], "mcp") and std.mem.eql(u8, seg[2], "connect")) return admin.loaderRetry(s, c, "mcp", try decoded(c.arena, seg[1]), "mcp server not found");
+    if (seg.len == 3 and std.mem.eql(u8, seg[0], "mcp") and std.mem.eql(u8, seg[2], "auth")) return admin.loaderAuth(s, c, "mcp", try decoded(c.arena, seg[1]), "mcp server not found");
     if ((seg.len == 1 or seg.len == 2) and std.mem.eql(u8, seg[0], "credentials")) return admin.credentials(s, c, if (seg.len == 2) seg[1] else null);
     if (seg.len == 1) {
         if (std.mem.eql(u8, seg[0], "config") and c.method == .PATCH) return admin.patchConfig(s, c);
@@ -115,6 +118,8 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
         if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
         return permissionReply(s, c, seg[1]);
     }
+    if (seg.len == 1 and std.mem.eql(u8, seg[0], "elicitations")) return admin.elicitations(s, c);
+    if (seg.len == 3 and std.mem.eql(u8, seg[0], "elicitations") and std.mem.eql(u8, seg[2], "reply")) return admin.elicitationReply(s, c, seg[1]);
 }
 
 /// `{"reply":"allow_once"|"allow_session"|"deny"}`.

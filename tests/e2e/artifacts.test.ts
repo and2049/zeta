@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { FakeOpenAI } from "./fake-openai";
 import { Sandbox, jsonEvents } from "./harness";
 
 let sb: Sandbox;
 let llm: FakeOpenAI;
-let source: ReturnType<typeof Bun.serve> | undefined;
 
 beforeEach(() => {
   sb = new Sandbox();
@@ -14,34 +14,32 @@ beforeEach(() => {
     model: "fake/test-model",
     provider: { fake: { options: { baseURL: llm.baseURL } } },
     permission: [{ action: "external_directory", pattern: "*", effect: "ask" }],
+    mcp: { servers: { fake: { type: "local", command: [process.execPath, join(import.meta.dir, "fake-mcp.ts")] } } },
   });
 });
 
 afterEach(async () => {
   await sb.cleanup();
   llm.stop();
-  source?.stop();
-  source = undefined;
 });
 
 test("an oversized result is saved in full and the model gets its start, end and path", async () => {
-  const lines = Array.from({ length: 7000 }, (_, i) => `line ${i}`).join("\n");
-  source = Bun.serve({ port: 0, fetch: () => new Response(lines, { headers: { "content-type": "text/plain" } }) });
-  llm.reply({ calls: [{ id: "big", name: "webfetch", args: { url: `http://127.0.0.1:${source.port}/` } }] }, { text: "saw it" });
+  const lines = Array.from({ length: 3000 }, (_, i) => `line ${i}`).join("\n");
+  llm.reply({ calls: [{ id: "big", name: "mcp__fake__echo", args: { text: lines } }] }, { text: "saw it" });
   const run = await sb.zeta(["run", "--json", "show"]);
   expect(run.code).toBe(0);
   const result: string = llm.requests[1].messages.at(-1).content;
   expect(result.startsWith("line 0\n")).toBe(true);
-  expect(result.endsWith("line 6999")).toBe(true);
+  expect(result.endsWith("line 2999")).toBe(true);
   const path = /The full output is in (\S+);/.exec(result)![1];
   expect(readFileSync(path, "utf8")).toBe(lines);
 
   // Reading the saved output back is not a trip outside the project.
-  llm.reply({ calls: [{ id: "back", name: "read", args: { path, offset: 3500, limit: 2 } }] }, { text: "done" });
+  llm.reply({ calls: [{ id: "back", name: "read", args: { path, offset: 1500, limit: 2 } }] }, { text: "done" });
   const session = jsonEvents(run.stdout)[0].session;
   expect((await sb.api(`/sessions/${session}/prompt`, "POST", { text: "read the rest" })).status).toBe(200);
   for (let i = 0; i < 100 && llm.requests.length < 4; i++) await Bun.sleep(20);
-  expect(llm.requests[3].messages.at(-1).content).toContain("line 3499");
+  expect(llm.requests[3].messages.at(-1).content).toContain("line 1499");
 
   // A fork gets its own copy, which outlives the source.
   const fork = await (await sb.api(`/sessions/${session}/fork`, "POST", {})).json();

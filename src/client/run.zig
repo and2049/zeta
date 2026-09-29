@@ -129,12 +129,19 @@ pub fn run(gpa: Allocator, io: Io, stdout: *Io.Writer, stderr: *Io.Writer, o: Op
             };
             link = recovered.link;
             skip_through = recovered.snapshot.revision;
+            // Questions asked while disconnected cannot be answered here.
+            _ = @import("mcp.zig").declineOpen(&link.?.client, ev_arena.allocator(), info.location, info.id) catch 0;
             try follower.reconcile(recovered.snapshot.messages, recovered.snapshot.inflight);
             if (!recovered.snapshot.running) break;
             continue;
         };
         const e = f.event;
         if (skip_through) |revision| if (e.seq <= revision) continue;
+        // Only this run's own questions: another client may answer the rest.
+        if (std.mem.eql(u8, e.type, types.elicitation_requested) and e.session != null and std.mem.eql(u8, e.session.?, info.id)) {
+            try declineQuestion(ev_arena.allocator(), &link.?.client, stderr, e.data);
+            continue;
+        }
         if (e.session == null or !std.mem.eql(u8, e.session.?, info.id)) continue;
 
         if (o.json) {
@@ -173,6 +180,15 @@ pub fn run(gpa: Allocator, io: Io, stdout: *Io.Writer, stderr: *Io.Writer, o: Op
         }
     }
     return follower.finish();
+}
+
+/// A plugin asked the user for input for this project; a one-shot run
+/// cannot answer, so it declines.
+fn declineQuestion(a: Allocator, client: *Client, stderr: *Io.Writer, data: std.json.Value) !void {
+    const q = std.json.parseFromValueLeaky(struct { id: []const u8, source: []const u8 = "", message: []const u8 = "" }, a, data, .{ .ignore_unknown_fields = true }) catch return;
+    try stderr.print("{s} asked: {s} (declined: zeta run cannot answer)\n", .{ q.source, q.message });
+    try stderr.flush();
+    @import("mcp.zig").answer(client, a, q.id, "decline", null) catch {};
 }
 
 /// One server connection. Heap-allocated: the event stream points into
