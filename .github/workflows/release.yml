@@ -1,0 +1,48 @@
+name: release
+
+# Pushing a tag like v0.1.0 builds zeta for Linux and macOS and publishes
+# the archives, with their checksums, as a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: 0.16.0
+  ZIG_SHA256: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        run: |
+          archive="zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          curl -fsSLo "$RUNNER_TEMP/$archive" "https://ziglang.org/download/$ZIG_VERSION/$archive"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-x86_64-linux-$ZIG_VERSION" >> "$GITHUB_PATH"
+
+      - name: Test
+        run: zig build test
+
+      - name: Build
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir dist
+          for pair in linux-x86_64:x86_64-linux-musl linux-aarch64:aarch64-linux-musl darwin-x86_64:x86_64-macos darwin-aarch64:aarch64-macos; do
+            name="zeta-${pair%%:*}"
+            zig build -Doptimize=ReleaseSmall -Dtarget="${pair#*:}" -Dversion="$version" --prefix "out/$name"
+            cp LICENSE README.md "out/$name/bin/"
+            tar -czf "dist/$name.tar.gz" -C "out/$name/bin" .
+          done
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "zeta $GITHUB_REF_NAME" --generate-notes

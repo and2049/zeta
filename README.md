@@ -6,6 +6,15 @@ A small coding agent in Zig, with no dependencies beyond the standard library.
 - Everything in the server is a plugin: tools, providers, hooks, MCP servers, extensions.
 - Status: early development.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/and2049/zeta/main/install.sh | bash
+```
+
+- Linux and macOS, x86_64 and arm64; installs to `~/.local/bin/zeta`.
+- `ZETA_VERSION=v0.1.0` picks a release; `ZETA_INSTALL_DIR` picks the directory.
+
 ## Quick start
 
 ```sh
