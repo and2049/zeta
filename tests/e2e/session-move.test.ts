@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { FakeOpenAI } from "./fake-openai";
 import { Sandbox, zetaBin } from "./harness";
-import { waitFor } from "./wait-for";
+import { waitFor } from "./tui-harness";
 
 let sb: Sandbox;
 let llm: FakeOpenAI;

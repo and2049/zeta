@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sandbox, zetaBin } from "./harness";
-import { waitFor } from "./wait-for";
+import { waitFor } from "./tui-harness";
 
 let sb: Sandbox;
 let server: ReturnType<typeof Bun.spawn>;

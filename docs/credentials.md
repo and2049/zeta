@@ -6,7 +6,8 @@ When using a saved credential, omit `options.apiKey` from config. An explicit co
 
 `zeta auth login <provider>` reads a hidden terminal key, or one line from piped stdin, and writes an API key into `$XDG_DATA_HOME/zeta/credentials.json` (default `~/.local/share/zeta/credentials.json`). The parent directory is private (0700); the JSON file is private (0600), atomically replaced. `PUT /credentials/:provider` accepts `{"type":"api","key":"..."}`; `GET /credentials` returns provider IDs and credential types (`api`, `oauth`, or `mcp` for an MCP server's sign-in under `mcp:<server>`, or `mcp:<safe>:<hash>` when the name has characters other than letters, digits, `.`, `_` and `-` or is longer than 100) without values. Provider ids cannot contain `:`, so a provider key never replaces a sign-in. API callers still need server Basic auth. Never commit literal keys or include them in shared examples.
 
-OpenAI ChatGPT OAuth can use either a browser callback or a device code. OAuth credentials include
+The TUI's `/connect` offers masked API-key entry and OpenAI ChatGPT OAuth,
+using either a browser callback or a device code. OAuth credentials include
 access/refresh tokens and expiry; they are refreshed before model requests.
 OpenAI OAuth uses the Codex Responses transport, while API keys use Chat
 Completions. See [providers and authentication](providers.md) for supported

@@ -11,7 +11,7 @@ zeta reads every `hooks.json` it finds, in this order:
 3. `<project>/.agents/hooks.json`
 4. `<project>/.zeta/hooks.json`
 
-All of them run; a later file runs after an earlier one. Each file is a plugin (id `hooks:<path>`) in the user or project layer, listed by `GET /registry` and `zeta_inspect`. User files are read when the server first needs them and project files when the project is first used; after editing one, run `zeta reload` (or `POST /registry/reload`). A file that no longer parses keeps its previous version and the error shows in the registry's `diagnostics`; a deleted file stops running on reload. Project hooks run without a trust prompt, like the rest of the project's configuration.
+All of them run; a later file runs after an earlier one. Each file is a plugin (id `hooks:<path>`) in the user or project layer, listed by `GET /registry` and `zeta_inspect`. User files are read when the server first needs them and project files when the project is first used; after editing one, run `zeta reload` (or `/reload` in the terminal client, or `POST /registry/reload`). A file that no longer parses keeps its previous version and the error shows in the registry's `diagnostics`; a deleted file stops running on reload. Project hooks run without a trust prompt, like the rest of the project's configuration.
 
 ```json
 {

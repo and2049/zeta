@@ -1,6 +1,6 @@
 //! The `command` capability: a slash command that turns its arguments into
-//! the prompt a session gets. Reserved names (`proto.commands.builtin`)
-//! cannot be registered.
+//! the prompt a session gets. Names the terminal client handles itself
+//! (`proto.commands.builtin`) cannot be registered.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;

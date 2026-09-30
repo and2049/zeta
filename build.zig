@@ -18,16 +18,17 @@ const modules = [_]ModuleSpec{
     .{ .name = "builtins", .deps = &.{ "proto", "plugin", "core", "platform" } },
     .{ .name = "server", .deps = &.{ "proto", "plugin", "core", "platform" } },
     .{ .name = "client", .deps = &.{ "proto", "platform" } },
+    .{ .name = "tui", .deps = &.{ "client", "proto", "platform" } },
 };
 
 // Embedded files are enumerated here so adding one requires explicitly shipping it.
 const doc_files = [_][]const u8{
-    "README.md",                          "configuration.md", "tools.md",      "permissions.md",
-    "credentials.md",                     "protocol.md",      "skills.md",     "examples/zeta.jsonc",
-    "providers.md",                       "SKILL.md",         "commands.md",   "hooks.md",
-    "compaction.md",                      "mcp.md",           "extensions.md", "examples/extensions/hello/zeta.json",
-    "examples/extensions/hello/hello.py", "concepts.md",      "extending.md",  "sessions.md",
-    "troubleshooting.md",
+    "README.md",                           "configuration.md",                   "tools.md",    "permissions.md",
+    "credentials.md",                      "protocol.md",                        "skills.md",   "examples/zeta.jsonc",
+    "tui.md",                              "providers.md",                       "SKILL.md",    "commands.md",
+    "hooks.md",                            "compaction.md",                      "mcp.md",      "extensions.md",
+    "examples/extensions/hello/zeta.json", "examples/extensions/hello/hello.py", "concepts.md", "extending.md",
+    "sessions.md",                         "troubleshooting.md",
 };
 
 pub fn build(b: *std.Build) void {

@@ -1,6 +1,6 @@
 ---
 name: zeta
-description: Index of zeta's own documentation. Load when the user asks about zeta itself, its config, providers, permissions, tools, skills, hooks, extensions, sessions, protocol, before changing zeta's configuration or resources, or when asked to extend zeta with a new tool, command, hook or provider.
+description: Index of zeta's own documentation. Load when the user asks about zeta itself, its config, providers, permissions, tools, skills, hooks, extensions, sessions, protocol or TUI, before changing zeta's configuration or resources, or when asked to extend zeta with a new tool, command, hook or provider.
 ---
 
 # zeta documentation index
@@ -22,6 +22,7 @@ The pages below sit next to this file. Find the row for the task, read its first
 | list, continue, export, undo or move sessions | `sessions.md` | `compaction.md` |
 | look up a built-in tool or its limits | `tools.md` | `generated/reference.md` |
 | talk to the server over HTTP or read its events | `protocol.md` | `sessions.md` |
+| use or configure the terminal client | `tui.md` | |
 | find out why something is not working | `troubleshooting.md` | `concepts.md` (where things live) |
 
 ## Checking live state

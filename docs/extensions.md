@@ -11,7 +11,7 @@ An extension is a program, in any language, that zeta starts and talks to over i
 
 `extensions/` is read from `~/.agents/` and the zeta config directory (user extensions) and from `<project>/.agents/` and `<project>/.zeta/` (project extensions). A user extension runs once per server, and each request tells it which project it is for; a project extension (and a config entry) runs once per project, started when the project is first used. The name an extension registers must match its file or manifest name. It is the plugin id: its tools, commands, hooks and providers belong to that plugin, whose settings under `plugin.<name>` in `zeta.jsonc` it receives. There is no trust prompt for project extensions.
 
-After changing an extension, run `zeta reload` (or `POST /registry/reload`): it stops the extensions and starts them again. `POST /extensions/<name>/restart` restarts one.
+After changing an extension, run `zeta reload` (or `/reload`, or `POST /registry/reload`): it stops the extensions and starts them again. `POST /extensions/<name>/restart` restarts one.
 
 ## Framing
 
@@ -42,7 +42,7 @@ zeta never lets a stuck extension hold it up: pings and the shutdown message are
 All lists are optional.
 
 - **tools**: `parameters` is the JSON Schema of the arguments; zeta checks the keywords it supports and the extension checks the rest. `permission` says what permission rules see: `{"action"?: "…", "target": "none" | "path" | "command" | "url" | "value", "arg": "<argument name>"}` (see [permissions](permissions.md)); without it the action is the tool name and the pattern `*`. `sideEffect` is `none`, `read`, `workspace` (default), `network` or `system`. `timeoutMs` overrides the tool timeout; `sequential: true` keeps the tool out of parallel batches; `cancellable: false` makes an abort wait for the call and its `tool_post` hooks to finish (within its timeout) and keep the hooked result, instead of cancelling it.
-- **commands**: slash commands. Running one asks the extension for the prompt text (see `command` below). Reserved command names (`new`, `model`, `reload`, …) are refused.
+- **commands**: slash commands. Running one asks the extension for the prompt text (see `command` below). Names the terminal client uses itself (`new`, `model`, `reload`, …) are refused.
 - **hooks**: hook points to receive: `session_start`, `prompt_submit`, `tool_pre`, `permission`, `tool_post`, `turn_stop` (see [tools](tools.md#hook-points)). They run in plugin load order with the other hooks.
 - **providers**: model providers, used as `<id>/<model>` in `model`. zeta resolves the API key like for built-in providers (`provider.<id>.options.apiKey`, a key saved with `zeta auth login <id>`, then the `env` variables) and a `baseURL` from config, and passes both with each request. `images: true` lets a model take image input; `reasoning: true` makes it take a thinking level (config's `thinkingLevels`, `thinking` and `reasoning` for the model apply too).
 

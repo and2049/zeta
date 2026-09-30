@@ -1,8 +1,8 @@
 //! Slash commands shared by the server listing and clients.
 const std = @import("std");
 
-/// Reserved names shared by the server and client command helpers.
-/// A template with one of these names is skipped with a diagnostic.
+/// Names the TUI handles itself. A prompt template with one of these names
+/// is skipped with a diagnostic.
 pub const builtin = [_][]const u8{ "new", "resume", "model", "connect", "rename", "delete", "reload", "mcp", "extensions", "compact", "fork", "undo", "attach", "pending", "help", "quit" };
 
 pub fn isBuiltin(name: []const u8) bool {

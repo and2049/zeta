@@ -31,16 +31,17 @@ plugin, which needs a configured `baseURL`. `GET /registry` lists the
 providers and the plugins that registered them; a provider registered in a
 narrower layer replaces a built-in one with the same ID.
 
-`GET /models` lists providers with saved OAuth/API-key credentials, a configured API
+`/model` lists providers with saved OAuth/API-key credentials, a configured API
 key, or a provider environment key. Explicitly configured endpoints also appear
 without a key, so local servers remain usable. An empty configured API key masks
-lower-precedence credentials. `GET /auth/providers` lists supported providers and their login methods.
+lower-precedence credentials. `/connect` lists all supported providers so you can
+add another connection.
 
 ## Anthropic
 
 The `anthropic` provider sends `POST <baseURL>/messages` (default
 `https://api.anthropic.com/v1`) with the key in `x-api-key`. The key comes
-from config, a saved key, or `ANTHROPIC_API_KEY`.
+from config, a key saved with `/connect`, or `ANTHROPIC_API_KEY`.
 
 - `max_tokens` is the model's output limit from the catalog, or 8192 when
   the model is unknown.
@@ -85,23 +86,26 @@ Google Gemini, AWS Bedrock, and Azure-specific auth are not implemented, and a
 custom provider ID always uses the OpenAI-compatible transport. Models served through a supported compatible gateway
 use that gateway's provider ID and credentials.
 
-## Authentication
+## Connect from the terminal UI
 
-`zeta auth login <provider>` reads an API key from a hidden prompt or stdin.
-`PUT /credentials/:provider` saves an API key over HTTP; configured custom
-providers are supported as well. Keys are never submitted as conversation messages.
+Run `/connect`, choose a provider, then choose a login method. API keys are
+entered in a masked field. They are stored locally and never submitted as a
+conversation message. Configured custom providers are available for API-key
+entry as well.
 
 OpenAI offers:
 
 - **API key:** an OpenAI Platform key, using API billing and Chat Completions.
-- **ChatGPT browser:** PKCE authorization with a localhost callback.
-- **ChatGPT device code:** open the authorization URL and enter the code, useful
+- **ChatGPT browser:** PKCE authorization with a localhost callback. The TUI
+  attempts to open your browser; Enter retries. The URL remains available if
+  automatic opening fails.
+- **ChatGPT device code:** open the displayed URL and enter the code, useful
   when a localhost browser callback is unavailable.
 
 ChatGPT authentication uses your account's Codex access. It does not turn a
 ChatGPT subscription into an OpenAI Platform API key, and its available models
 can differ from the API-key model catalog. Access and refresh tokens stay on
-the server; API clients receive only login instructions and completion status.
+the server; the TUI receives only login instructions and completion status.
 Expired access tokens are refreshed before subsequent model requests.
 
 Codex requests are not stored by OpenAI, so zeta asks for the model's
@@ -109,6 +113,10 @@ encrypted reasoning and keeps it in the session log with the reasoning block
 (`thinkingSignature`). Later requests send it back, so the model keeps its
 reasoning across tool calls. It is only sent to the same provider and model
 that produced it; after a model switch the reasoning is left out.
+
+Escape cancels the login UI. Your conversation draft and attachments are
+preserved. After connecting, the refreshed model picker opens automatically;
+you can also open it later with `/model`.
 
 ## Credential precedence and storage
 
@@ -120,8 +128,9 @@ endpoints; ChatGPT OAuth uses the Codex endpoint.
 
 Credentials are saved in `$XDG_DATA_HOME/zeta/credentials.json` (normally
 `~/.local/share/zeta/credentials.json`) with mode 0600. Saving a new login for
-a provider replaces its previous saved credential. `zeta auth login <provider>` accepts API keys; OAuth flows are available
-through `POST /auth/:provider/start` (see [protocol](protocol.md)).
+a provider replaces its previous saved credential. `zeta auth login <provider>`
+continues to accept API keys; the interactive OAuth methods are available
+through `/connect`.
 
 ## Errors and retries
 

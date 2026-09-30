@@ -1,8 +1,9 @@
 # Prompt templates
 
-A prompt template is a Markdown file that becomes a slash command.
-`POST /sessions/:id/command` expands `review.md` with its arguments and
-sends the result as an ordinary message. The session history keeps the expanded text.
+A prompt template is a Markdown file that becomes a slash command. Typing
+`/review src/main.zig` in the full-screen client expands `review.md` with its
+arguments and sends the result as an ordinary message. The session history
+keeps the expanded text.
 
 ## Where templates live
 
@@ -22,7 +23,7 @@ and `GET /registry`:
 
 - files larger than 1 MiB
 - names containing whitespace
-- reserved command names: `new`, `resume`, `model`,
+- names of the client's built-in commands: `new`, `resume`, `model`,
   `connect`, `rename`, `delete`, `reload`, `attach`, `pending`, `help`, `quit`
 - frontmatter lines that are not `key: value`
 - templates past the first 512 in one directory
@@ -62,9 +63,14 @@ run shell commands.
 
 ## Running templates
 
-`GET /commands?location=` lists templates and
+In the full-screen client, typing `/` lists the built-in commands, then the
+templates with their argument hint, description and source (`user` or
+`project`). Enter on `/name arguments` runs the template when one exists;
+anything else starting with `/` is sent as ordinary text. `zeta run` sends its
+text as is and does not run templates.
+
+Over HTTP, `GET /commands?location=` lists templates and
 `POST /sessions/:id/command` runs one; see [protocol](protocol.md).
-`zeta run` sends its text as is and does not run templates.
 
 ## Other commands
 

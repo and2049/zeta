@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Sandbox } from "./harness";
 import { FakeOpenAI } from "./fake-openai";
-import { waitFor } from "./wait-for";
+import { waitFor } from "./tui-harness";
 
 let sb: Sandbox;
 let llm: FakeOpenAI;

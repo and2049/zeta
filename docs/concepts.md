@@ -4,8 +4,8 @@ The few ideas the rest of these pages build on, and a map of where each thing li
 
 ## The pieces
 
-- **Server.** One long-lived process per user (`zeta serve`, or started on demand by any client) owns everything: sessions, plugins, credentials, model calls and tools. It listens on localhost and writes a discovery file (`$XDG_RUNTIME_DIR/zeta/server.json`) with its URL and password. `zeta run --standalone` start a private server instead.
-- **Clients.** `zeta run`, the other CLI commands and any script are clients of the same [HTTP API and event stream](protocol.md). Clients hold no agent logic; two clients on one session see the same thing.
+- **Server.** One long-lived process per user (`zeta serve`, or started on demand by any client) owns everything: sessions, plugins, credentials, model calls and tools. It listens on localhost and writes a discovery file (`$XDG_RUNTIME_DIR/zeta/server.json`) with its URL and password. `zeta --standalone` and `zeta run --standalone` start a private server instead.
+- **Clients.** The full-screen terminal client, `zeta run`, the other CLI commands and any script are clients of the same [HTTP API and event stream](protocol.md). Clients hold no agent logic; two clients on one session see the same thing.
 - **Project (location).** The nearest enclosing git root of a directory, or the directory itself. Sessions, project config, project plugins and permissions are all per project. HTTP routes take it as `location=<absolute path>` or derive it from `session=<id>`.
 - **Session.** A conversation in one project, stored as an append-only JSONL log. A session pins its model and thinking level on its first run. See [sessions](sessions.md).
 - **Run and turn.** A run starts when a prompt leaves the session's inbox and ends when the agent stops; each model request and the tool calls it makes form a turn. Inputs wait in the inbox and are delivered one at a time.
@@ -26,6 +26,7 @@ zeta changes its own behavior through files, never through its source or binary:
 | shell commands at hook points | `hooks.json` ([command hooks](hooks.md)) | `zeta reload` |
 | tools from an MCP server | `mcp` in `zeta.jsonc` ([MCP servers](mcp.md)) | `zeta reload` |
 | new tools, commands, hooks or providers in code | an extension ([extensions](extensions.md)) | `zeta reload` |
+| how the terminal client shows things | `~/.config/zeta/tui.jsonc` ([terminal client](tui.md)) | client restart |
 
 [Extending zeta](extending.md) explains how to pick between them and how to check the result.
 
@@ -38,10 +39,11 @@ zeta changes its own behavior through files, never through its source or binary:
 | config | `<config>/zeta.jsonc`, `<config>/profiles/<name>.jsonc` | `.zeta/zeta.jsonc`, `.zeta/profiles/<name>.jsonc` | `GET /config`, `zeta_inspect` `config` |
 | instructions | `<config>/AGENTS.md` | `AGENTS.md` in the project and every ancestor directory | `GET /registry` `prompt_sections` |
 | skills | `~/.agents/skills/`, `<config>/skills/` | `.agents/skills/`, `.zeta/skills/` | `GET /registry` `skills` |
-| prompt templates | `~/.agents/prompts/`, `<config>/prompts/` | `.agents/prompts/`, `.zeta/prompts/` | `GET /commands` |
+| prompt templates | `~/.agents/prompts/`, `<config>/prompts/` | `.agents/prompts/`, `.zeta/prompts/` | `GET /commands`, `/` in the client |
 | command hooks | `~/.agents/hooks.json`, `<config>/hooks.json` | `.agents/hooks.json`, `.zeta/hooks.json` | `GET /registry` `hooks` |
 | extensions | `~/.agents/extensions/`, `<config>/extensions/` | `.agents/extensions/`, `.zeta/extensions/`, `extensions` in config | `GET /extensions`, `zeta_inspect` `plugins` |
 | MCP servers | `mcp` in user config | `mcp` in project config | `zeta mcp`, `GET /mcp` |
+| terminal client settings | `<config>/tui.jsonc` | none | the client footer reports errors |
 | sessions | `<data>/sessions/<project-hash>/<id>.jsonl`, saved tool output in `<id>.artifacts/` | | `zeta sessions`, `GET /sessions` |
 | credentials | `<data>/credentials.json` (0600) | | `GET /credentials` (no values) |
 | these docs | `<data>/docs/<content-hash>/` | | the `zeta` skill |
@@ -61,5 +63,6 @@ Project paths are relative to the project root. Where a cell lists several place
 | `ZETA_PROFILE` | select a profile; overrides `--profile` |
 | `ZETA_MODEL` | select a model; overrides `--model` and config |
 | `<PROVIDER>_API_KEY` and the catalog's names (`OPENAI_API_KEY`, …) | provider keys, after config and saved credentials ([credentials](credentials.md)) |
+| `COLORTERM=truecolor` | full colors in the terminal client |
 
 Hook commands receive `ZETA_PROJECT_DIR` and `ZETA_SESSION_ID` ([command hooks](hooks.md#input)). Use `{env:VAR}` in any config string to read others.

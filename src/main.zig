@@ -7,6 +7,15 @@ const builtins = @import("builtins");
 const platform = @import("platform");
 const server = @import("server");
 const client = @import("client");
+const tui = @import("tui");
+
+/// A panic skips defers: give the terminal back before reporting it.
+pub const panic = std.debug.FullPanic(struct {
+    fn restoreThenPanic(msg: []const u8, first_trace_addr: ?usize) noreturn {
+        platform.tui_terminal.restoreOnPanic();
+        std.debug.defaultPanic(msg, first_trace_addr);
+    }
+}.restoreThenPanic);
 
 pub fn main(init: std.process.Init) !void {
     const gpa = if (builtin.mode == .Debug) init.gpa else std.heap.c_allocator;
@@ -14,6 +23,24 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const args = try init.minimal.args.toSlice(arena);
     const cmd: []const u8 = if (args.len > 1) args[1] else "";
+
+    if (args.len == 1 or (args.len == 2 and std.mem.eql(u8, cmd, "--standalone"))) {
+        var paths = try platform.Paths.resolve(arena, init.environ_map);
+        const exe = try std.process.executablePathAlloc(io, arena);
+        const private = if (args.len == 2) try client.standalone.start(gpa, arena, io, paths, exe) else null;
+        defer if (private) |p| p.stop(gpa, io);
+        if (private) |p| paths = p.paths;
+        return tui.run.run(gpa, io, .{
+            .serve = if (private) |p| p.serve else &.{"serve"},
+            .log = if (private) |p| p.log else null,
+            .paths = paths,
+            .exe = try std.process.executablePathAlloc(io, arena),
+            .cwd = try std.process.currentPathAlloc(io, arena),
+            .home = init.environ_map.get("HOME"),
+            .colorterm = init.environ_map.get("COLORTERM"),
+            .environment = .{ .model = init.environ_map.get("ZETA_MODEL"), .profile = init.environ_map.get("ZETA_PROFILE") },
+        });
+    }
 
     if (std.mem.eql(u8, cmd, "--version")) {
         return out(io, "zeta {s}\n", .{build_options.version});
@@ -318,6 +345,9 @@ fn out(io: std.Io, comptime fmt: []const u8, args: anytype) !void {
 const usage =
     \\usage: zeta <command>
     \\
+    \\  (no command) open the full-screen terminal client
+    \\               Ctrl+C clears input; Ctrl+Q exits
+    \\  --standalone the terminal client with a private server that ends with it
     \\  run [--json] [--standalone] [--continue | --session <id>] [--profile <name>]
     \\      [--model <provider/model>] [--thinking <level>] <prompt | @file>...
     \\               send one prompt and print the reply, in a new session, the

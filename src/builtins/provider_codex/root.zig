@@ -29,13 +29,13 @@ fn stream(
     const credentials: plugin.provider.Credentials = if (options.authentication) |auth|
         auth.resolve(auth.ctx, arena, io) catch |err| {
             if (err == error.Canceled) return err;
-            try sink.emit(.{ .failure = .{ .message = "Could not load or refresh ChatGPT authentication. Retry or sign in again." } });
+            try sink.emit(.{ .failure = .{ .message = "Could not load or refresh ChatGPT authentication. Retry, or use /connect to sign in again." } });
             return err;
         }
     else
         .{ .apiKey = options.apiKey orelse "", .account_id = options.account_id };
     if (credentials.apiKey.len == 0) {
-        try sink.emit(.{ .failure = .{ .message = "ChatGPT authentication required. Sign in to continue." } });
+        try sink.emit(.{ .failure = .{ .message = "ChatGPT authentication required. Use /connect to sign in." } });
         return error.MissingCredentials;
     }
     const base = std.mem.trimEnd(u8, options.baseURL orelse default_base_url, "/");

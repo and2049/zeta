@@ -2,15 +2,18 @@
 
 A small coding agent in Zig, with no dependencies beyond the standard library.
 
-- One background server per user; `zeta run` and scripts talk to it over localhost HTTP + SSE.
+- One background server per user; the terminal UI, `zeta run` and scripts talk to it over localhost HTTP + SSE.
 - Everything in the server is a plugin: tools, providers, hooks, MCP servers, extensions.
 - Status: early development.
 
 ## Quick start
 
 ```sh
+zeta                  # full-screen terminal client; /connect to add a provider
 zeta run "explain this repo"
 ```
+
+In the TUI: `/` commands, `@` files, Enter send, Ctrl+J new line, Esc stop, Ctrl+Q quit.
 
 ## Configure
 
@@ -49,7 +52,7 @@ zeta reload                          # reload plugins for this project
 
 - [Overview](docs/README.md)
 - [Configuration](docs/configuration.md), [providers](docs/providers.md), [credentials](docs/credentials.md)
-- [Prompt templates](docs/commands.md), [skills](docs/skills.md)
+- [Terminal UI](docs/tui.md), [prompt templates](docs/commands.md), [skills](docs/skills.md)
 - [Tools](docs/tools.md), [permissions](docs/permissions.md), [hooks](docs/hooks.md)
 - [MCP](docs/mcp.md), [extensions](docs/extensions.md), [compaction](docs/compaction.md)
 - [HTTP API and events](docs/protocol.md)

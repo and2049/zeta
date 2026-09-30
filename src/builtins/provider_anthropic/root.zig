@@ -30,7 +30,7 @@ fn stream(
 ) anyerror!void {
     const key = options.apiKey orelse "";
     if (key.len == 0) {
-        try sink.emit(.{ .failure = .{ .message = "Anthropic API key required. Set ANTHROPIC_API_KEY or run zeta auth login anthropic." } });
+        try sink.emit(.{ .failure = .{ .message = "Anthropic API key required. Set ANTHROPIC_API_KEY or use /connect." } });
         return error.MissingCredentials;
     }
     const base = std.mem.trimEnd(u8, options.baseURL orelse default_base_url, "/");

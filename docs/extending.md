@@ -48,7 +48,7 @@ curl -su "zeta:$pw" "$url/extensions?location=$PWD"   # extension status and err
 1. Write or edit the file.
 2. If it is a `hooks.json`, an MCP server or an extension, run `zeta reload` (or `POST /registry/reload`); it exits 1 and names any plugin that failed to load. Everything else is read on the next run.
 3. Check that it loaded: the registry lists the new plugin, tool, hook or command, and `diagnostics` is empty. A plugin that fails to reload keeps its previous version and reports why in `diagnostics`; an extension reports `failed` with an `error`.
-4. Try it: `zeta run "use word_count on 'a b c'"`, or run the command over HTTP. `zeta run` exits 1 when the run fails or a tool is denied.
+4. Try it: `zeta run "use word_count on 'a b c'"`, or the slash command in the terminal client. `zeta run` exits 1 when the run fails or a tool is denied.
 5. If something is wrong, read the logs ([troubleshooting](troubleshooting.md)).
 
 A run already in progress keeps the plugins it started with, so the change shows from the next run on.
@@ -107,7 +107,7 @@ Things that break extensions:
 - **Blocking the read loop.** zeta pings every 10 seconds and treats 30 seconds of silence as dead. Handle requests on threads (or asynchronously) so the loop keeps reading and answering pings, and guard stdout with a lock.
 - **Registering slowly.** `register` must arrive within 10 seconds of starting. Do slow setup after `ready`.
 - **Answering twice or never.** Answer every request exactly once, in any order. After a `cancel`, no answer is needed.
-- **Names.** Tool names must not collide with a narrower layer's tools unless replacing them is the point; command names cannot be reserved names.
+- **Names.** Tool names must not collide with a narrower layer's tools unless replacing them is the point; command names cannot be ones the terminal client uses itself.
 
 Before reloading, the extension can be tried by hand: run its command in its directory; it should print one `register` line. Type `{"type":"ready","location":null,"options":{}}` and then a request such as `{"type":"request","id":"1","method":"tool","params":{"name":"line_count","arguments":{"text":"a\nb"},"location":"/tmp","session":"x"}}` to see its answer.
 
