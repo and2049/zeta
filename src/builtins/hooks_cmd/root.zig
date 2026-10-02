@@ -7,8 +7,8 @@
 //!
 //! Events map onto hook points: SessionStart → session_start,
 //! UserPromptSubmit → prompt_submit, PreToolUse → tool_pre,
-//! PermissionRequest → permission, PostToolUse/PostToolUseFailure →
-//! tool_post, Stop → turn_stop.
+//! PostToolUse/PostToolUseFailure → tool_post, Stop → turn_stop. A
+//! PreToolUse command that answers `ask` has the user confirm the call.
 const std = @import("std");
 const core = @import("core");
 const plugin = @import("plugin");
@@ -180,7 +180,6 @@ const Set = struct {
         if (s.has(.SessionStart)) try r.addHook(owner, .{ .ctx = s, .point = .{ .session_start = sessionStart } });
         if (s.has(.UserPromptSubmit)) try r.addHook(owner, .{ .ctx = s, .point = .{ .prompt_submit = promptSubmit } });
         if (s.has(.PreToolUse)) try r.addHook(owner, .{ .ctx = s, .point = .{ .tool_pre = toolPre } });
-        if (s.has(.PermissionRequest)) try r.addHook(owner, .{ .ctx = s, .point = .{ .permission = permission } });
         if (s.has(.PostToolUse) or s.has(.PostToolUseFailure)) try r.addHook(owner, .{ .ctx = s, .point = .{ .tool_post = toolPost } });
         if (s.has(.Stop)) try r.addHook(owner, .{ .ctx = s, .point = .{ .turn_stop = turnStop } });
     }
@@ -243,6 +242,9 @@ fn toolPre(ctx: ?*anyopaque, arena: Allocator, io: Io, scope: hook.Scope, call: 
         if (c.event != .PreToolUse or !file.matches(c.matcher, call.name)) continue;
         const reply = (try s.invoke(arena, io, c, scope, try toolFields(arena, current, &.{}), true)).?;
         if (reply.block) |reason| return .{ .block = reason };
+        if (reply.ask) |reason| if (!try confirm(arena, io, scope, s.id, current, reason)) {
+            return .{ .deny = try std.fmt.allocPrint(arena, "The user did not allow this {s} call.", .{current.name}) };
+        };
         if (reply.updated_input) |args| {
             current.args = args;
             rewritten = true;
@@ -251,18 +253,21 @@ fn toolPre(ctx: ?*anyopaque, arena: Allocator, io: Io, scope: hook.Scope, call: 
     return if (rewritten) .{ .rewrite = current.args } else .@"continue";
 }
 
-fn permission(ctx: ?*anyopaque, arena: Allocator, io: Io, scope: hook.Scope, ask: hook.Ask) anyerror!hook.Permission {
-    const s: *const Set = @ptrCast(@alignCast(ctx.?));
-    for (s.commands) |c| {
-        if (c.event != .PermissionRequest or !file.matches(c.matcher, ask.call.name)) continue;
-        const reply = (try s.invoke(arena, io, c, scope, try toolFields(arena, ask.call, &.{
-            .{ .name = "action", .value = .{ .string = ask.action } },
-            .{ .name = "pattern", .value = .{ .string = ask.pattern } },
-        }), true)).?;
-        if (reply.block) |reason| return .{ .deny = reason };
-        if (reply.allow) return .{ .allow = reply.updated_input };
-    }
-    return .@"continue";
+/// How long the user has to answer a hook's question.
+const confirm_ms = 5 * 60 * 1000;
+
+/// Asks the user whether `call` may run; anything but yes is no.
+fn confirm(arena: Allocator, io: Io, scope: hook.Scope, source: []const u8, call: hook.Call, reason: []const u8) !bool {
+    const args = try std.json.Stringify.valueAlloc(arena, call.args, .{});
+    const answer = try scope.asker.ask(scope.asker.ctx, arena, io, .{
+        .location = scope.location,
+        .session = scope.session,
+        .source = source,
+        .message = if (reason.len > 0) reason else try std.fmt.allocPrint(arena, "Allow this {s} call?", .{call.name}),
+        .kind = .{ .confirm = .{ .detail = try std.fmt.allocPrint(arena, "{s} {s}", .{ call.name, args }) } },
+        .timeout_ms = confirm_ms,
+    });
+    return answer.action == .accept;
 }
 
 fn toolPost(ctx: ?*anyopaque, arena: Allocator, io: Io, scope: hook.Scope, call: hook.Call, result: plugin.tool.Result) anyerror!hook.ToolPost {

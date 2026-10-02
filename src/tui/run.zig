@@ -101,24 +101,28 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io, options: Options) !void {
         if (!status.overflow) overflow_handled = false;
         if (status.generation != controller.generation or status.overflow and !overflow_handled) {
             overflow_handled = status.overflow;
+            app.questions.clear();
+            if (app.overlay == .question) app.overlay = .none;
             try state.reconnect();
             const fresh = controller.reconnect(status.generation) orelse if (app.session) |id| controller.select(id) else null;
             if (fresh) |token| {
-                // This session's questions asked while this client was
-                // away cannot be answered here either.
-                try answers.submit(.{ .kind = .decline_open, .id = token.session });
                 try env.load(token);
             } else if (!env.creating and status.connected) {
                 try worker.submit(.{ .kind = .create });
                 env.creating = true;
             }
         }
-        while (answers.poll()) |result| answers.release(result);
+        while (answers.poll()) |result| {
+            defer answers.release(result);
+            if (result.err) |err| app.say("Question reply failed: {s}", .{@errorName(err)});
+        }
         while (connection.poll()) |bytes| {
             defer gpa.free(bytes);
-            try event(&app, &worker, &answers, &state, gpa, bytes);
+            try event(&app, &worker, &state, gpa, bytes);
             state.enqueue(bytes) catch {
                 if (app.session) |id| {
+                    app.questions.clear();
+                    if (app.overlay == .question) app.overlay = .none;
                     try state.reconnect();
                     try env.load(controller.select(id));
                 }
@@ -146,9 +150,9 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io, options: Options) !void {
             try parser.feed(buf[0..count]);
             while (try parser.next()) |ev| {
                 defer ev.deinit(gpa);
-                try key(&env, input_arena.allocator(), &input_arena, ev);
+                try key(&env, &answers, input_arena.allocator(), &input_arena, ev);
             }
-        } else if (parser.flushEscape()) |ev| try key(&env, input_arena.allocator(), &input_arena, ev);
+        } else if (parser.flushEscape()) |ev| try key(&env, &answers, input_arena.allocator(), &input_arena, ev);
     }
 }
 
@@ -157,10 +161,17 @@ fn truecolor(colorterm: ?[]const u8) bool {
     return std.mem.eql(u8, value, "truecolor") or std.mem.eql(u8, value, "24bit");
 }
 
-fn key(env: *results.Env, a: std.mem.Allocator, input_arena: *std.heap.ArenaAllocator, ev: input.Event) !void {
+fn key(env: *results.Env, answers: *Worker, a: std.mem.Allocator, input_arena: *std.heap.ArenaAllocator, ev: input.Event) !void {
     _ = input_arena.reset(.retain_capacity);
     const app = env.app;
     const req = try actions.handle(app, env.registry, a, ev);
+    if (req == .answer_question) {
+        const answer = req.answer_question;
+        const content = if (answer.content) |v| try std.json.Stringify.valueAlloc(a, v, .{}) else "";
+        try answers.submit(.{ .kind = .answer_question, .id = answer.id, .text = answer.action, .extra = content });
+        app.resolve(answer.id);
+        return;
+    }
     try dispatch(app, env.registry, env.worker, req);
     switch (req) {
         .older => if (app.session) |id| if (env.state.snapshot) |snap| if (snap.nextBefore) |cursor| {
@@ -172,13 +183,19 @@ fn key(env: *results.Env, a: std.mem.Allocator, input_arena: *std.heap.ArenaAllo
 }
 
 /// Status lines and automatic replies for this session's events.
-fn event(app: *App, worker: *Worker, answers: *Worker, state: *const client.state.State, gpa: std.mem.Allocator, bytes: []const u8) !void {
+fn event(app: *App, worker: *Worker, state: *const client.state.State, gpa: std.mem.Allocator, bytes: []const u8) !void {
     var event_arena: std.heap.ArenaAllocator = .init(gpa);
     defer event_arena.deinit();
     const e = proto.event.Decoded.parse(event_arena.allocator(), bytes) catch return;
     const session = app.session orelse return;
-    if (e.session == null or !std.mem.eql(u8, e.session.?, session)) return;
     const types = proto.event.types;
+    if (std.mem.eql(u8, e.type, types.question_asked)) return app.ask(e.data, e.session, e.location);
+    if (std.mem.eql(u8, e.type, types.question_resolved)) {
+        if (e.data == .object) if (e.data.object.get("id")) |id| if (id == .string) app.resolve(id.string);
+        return;
+    }
+    const current = if (e.session) |id| std.mem.eql(u8, id, session) else e.location != null and std.mem.eql(u8, e.location.?, app.session_location);
+    if (!current) return;
     if (std.mem.eql(u8, e.type, types.agent_end)) {
         if (!app.auto_title_attempted and state.snapshot != null and state.snapshot.?.info.title == null) {
             app.auto_title_attempted = true;
@@ -193,13 +210,9 @@ fn event(app: *App, worker: *Worker, answers: *Worker, state: *const client.stat
             return if (v == .string) v.string else null;
         }
     }.get;
-    if (std.mem.eql(u8, e.type, types.elicitation_requested)) {
-        // Answering a plugin's question needs a form this client does not
-        // have yet: decline this session's, and say so.
-        if (text(data, "id")) |id| {
-            app.say("Declined a question from an MCP server: {s}", .{text(data, "message") orelse ""});
-            try answers.submit(.{ .kind = .decline_question, .id = id });
-        }
+    if (std.mem.eql(u8, e.type, types.plugin_notice)) {
+        const level = text(data, "level") orelse "info";
+        if (std.mem.eql(u8, level, "info")) app.say("{s}: {s}", .{ text(data, "source") orelse "plugin", text(data, "message") orelse "" }) else app.say("{s} {s}: {s}", .{ level, text(data, "source") orelse "plugin", text(data, "message") orelse "" });
     } else if (std.mem.eql(u8, e.type, types.session_error)) {
         if (text(data, "error")) |detail| app.say("Error: {s}", .{detail});
     } else if (std.mem.eql(u8, e.type, types.compaction_start)) {

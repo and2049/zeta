@@ -47,7 +47,7 @@ pub fn apply(env: *Env, result: network.Result) !void {
     const app = env.app;
     const job = result.job;
     const controller = env.controller;
-    if ((job.kind == .get or job.kind == .config or job.kind == .page) and
+    if ((job.kind == .get or job.kind == .config or job.kind == .page or job.kind == .list_questions) and
         (job.generation != controller.generation or job.epoch != controller.epoch or
             controller.selected == null or !std.mem.eql(u8, job.id, controller.selected.?))) return;
     if (result.err) |err| return failed(env, job, err);
@@ -73,7 +73,17 @@ pub fn apply(env: *Env, result: network.Result) !void {
             if (!controller.accepts(.{ .generation = job.generation, .epoch = job.epoch, .session = job.id })) return;
             env.state.hydrate(result.body) catch return app.say("Could not load session", .{});
             try projection.sync(app, env.state);
+            try env.worker.submit(.{ .kind = .list_questions, .id = job.id, .text = app.session_location, .generation = job.generation, .epoch = job.epoch });
             app.status = "";
+        },
+        .list_questions => {
+            if (!std.mem.eql(u8, job.text, app.session_location)) return;
+            const list = try std.json.parseFromSliceLeaky([]const std.json.Value, scratch, result.body, .{});
+            for (list) |q| {
+                const s = if (q == .object) q.object.get("session") else null;
+                const target: ?[]const u8 = if (s) |v| if (v == .string) v.string else null else null;
+                try app.ask(q, target, job.text);
+            }
         },
         .config => {
             const parsed = try std.json.parseFromSliceLeaky(std.json.Value, scratch, result.body, .{});
@@ -155,7 +165,11 @@ pub fn apply(env: *Env, result: network.Result) !void {
             if (!moved.moved) return app.say("Already in {s}", .{moved.location});
             // The directory as typed, not the project root it belongs to.
             try app.setCwd(job.text);
+            try app.setSessionLocation(moved.location);
             try env.worker.setCwd(job.text);
+            app.questions.clear();
+            if (app.overlay == .question) app.overlay = .none;
+            try env.worker.submit(.{ .kind = .list_questions, .id = job.id, .text = moved.location, .generation = controller.generation, .epoch = controller.epoch });
             app.branch = @import("git_branch.zig").read(env.arena, env.io, job.text) catch "";
             app.say("Moved to {s}", .{moved.location});
             // The new project may configure another model.

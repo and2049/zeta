@@ -1,4 +1,5 @@
-//! Runtime snapshot integration tests: in-flight drafts, inbox leases and pending permissions.
+//! Runtime snapshot integration tests: in-flight drafts, inbox leases, and
+//! questions plugins ask.
 const std = @import("std");
 const Runtime = @import("Runtime.zig");
 const Io = std.Io;
@@ -8,7 +9,6 @@ const plugin = @import("plugin");
 const proto = @import("proto");
 const types = proto.event.types;
 const default_api = @import("test_provider.zig").api_id;
-const permissions = @import("permissions.zig");
 
 test "snapshot projects assistant prefix through revision before later deltas" {
     const gpa = std.testing.allocator;
@@ -110,7 +110,7 @@ test "leased input remains in snapshot until durable message promotion" {
     try std.testing.expect(promoted.revision > waiting.revision);
 }
 
-test "snapshot includes pending permission and exposes a stable bus revision" {
+test "a plugin's question is listed for its project and answered through the runtime" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
@@ -123,26 +123,32 @@ test "snapshot includes pending permission and exposes a stable bus revision" {
     defer bus.unsubscribe(sub);
     var registry: plugin.Registry = .init(gpa, io);
     defer registry.deinit();
-    try @import("test_provider.zig").register(&registry);
     var env: std.process.Environ.Map = .init(gpa);
     defer env.deinit();
     var rt: Runtime = .init(gpa, io, &bus, &registry, &env, .{ .config_dir = base, .sessions_dir = base });
     defer rt.deinit();
-    const info = try rt.createSession(base);
-    rt.broker = permissions.Broker.init(gpa, io, &bus, &rt.ids);
-    rt.broker.?.state_mutex = &rt.mutex;
     const Task = struct {
-        broker: *permissions.Broker,
-        request: permissions.Request,
+        rt: *Runtime,
+        location: []const u8,
+        answer: ?plugin.ask.Answer = null,
+        arena: std.heap.ArenaAllocator,
         fn run(t: *@This()) Io.Cancelable!void {
-            const ask = [_]permissions.Rule{.{ .action = "bash", .pattern = "*", .effect = .ask }};
-            _ = t.broker.evaluate(t.request, &.{}, &ask, &.{}, 120_000) catch |err| {
+            const asker = t.rt.asker();
+            t.answer = asker.ask(asker.ctx, t.arena.allocator(), t.rt.io, .{
+                .location = t.location,
+                .session = "ses_1",
+                .source = "guard",
+                .message = "Allow this?",
+                .kind = .{ .select = .{ .options = &.{ .{ .value = "once" }, .{ .value = "never" } } } },
+                .timeout_ms = 60_000,
+            }) catch |err| {
                 if (err == error.Canceled) return error.Canceled;
                 return;
             };
         }
     };
-    var task: Task = .{ .broker = &rt.broker.?, .request = .{ .session = info.id, .location = base, .action = "bash", .pattern = "echo hi" } };
+    var task: Task = .{ .rt = &rt, .location = base, .arena = .init(gpa) };
+    defer task.arena.deinit();
     var group: Io.Group = .init;
     defer group.cancel(io);
     try group.concurrent(io, Task.run, .{&task});
@@ -152,30 +158,20 @@ test "snapshot includes pending permission and exposes a stable bus revision" {
     while (try sub.next(io)) |frame| {
         defer frame.release(gpa);
         const event = try proto.event.Decoded.parse(arena.allocator(), frame.bytes);
-        if (std.mem.eql(u8, event.type, "permission.asked")) {
+        if (std.mem.eql(u8, event.type, types.question_asked)) {
+            try std.testing.expectEqualStrings("select", event.data.object.get("kind").?.string);
             asked_id = event.data.object.get("id").?.string;
             break;
         }
     }
-    const state = try rt.snapshot(arena.allocator(), info.id);
-    try std.testing.expectEqual(@as(usize, 1), state.pendingPermissions.len);
-    try std.testing.expectEqualStrings(asked_id.?, state.pendingPermissions[0].id);
-    try std.testing.expect(state.revision >= 2); // create and ask
-    try std.testing.expect(rt.replyPermission(asked_id.?, .deny));
+    const open = try rt.questions(arena.allocator(), base);
+    try std.testing.expectEqual(@as(usize, 1), open.len);
+    try std.testing.expectEqualStrings("ses_1", open[0].session.?);
+    var problem: []const u8 = "";
+    try std.testing.expectError(error.InvalidContent, rt.replyQuestion(arena.allocator(), asked_id.?, .accept, "\"sometimes\"", &problem));
+    try std.testing.expect(try rt.replyQuestion(arena.allocator(), asked_id.?, .accept, "\"once\"", &problem));
     try group.await(io);
-    var saw_resolved = false;
-    while (try sub.next(io)) |frame| {
-        defer frame.release(gpa);
-        const event = try proto.event.Decoded.parse(arena.allocator(), frame.bytes);
-        if (std.mem.eql(u8, event.type, "permission.resolved")) {
-            try std.testing.expect(event.seq > state.revision);
-            try std.testing.expectEqualStrings(asked_id.?, event.data.object.get("id").?.string);
-            saw_resolved = true;
-            break;
-        }
-    }
-    try std.testing.expect(saw_resolved);
-    const after = try rt.snapshot(arena.allocator(), info.id);
-    try std.testing.expectEqual(@as(usize, 0), after.pendingPermissions.len);
-    try std.testing.expect(after.revision >= state.revision);
+    try std.testing.expectEqual(plugin.ask.Action.accept, task.answer.?.action);
+    try std.testing.expectEqualStrings("\"once\"", task.answer.?.content.?);
+    try std.testing.expectEqual(@as(usize, 0), (try rt.questions(arena.allocator(), base)).len);
 }

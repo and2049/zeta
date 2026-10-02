@@ -138,22 +138,22 @@ pub fn loaderAuth(s: *Server, c: *Ctx, loader: []const u8, name: []const u8, mis
 }
 
 /// `GET ?location=`: the questions plugins have open for the project.
-pub fn elicitations(s: *Server, c: *Ctx) !void {
+pub fn questions(s: *Server, c: *Ctx) !void {
     if (c.method != .GET) return c.fail(.method_not_allowed, "method not allowed");
     const raw = (try query.get(c.arena, c.query, "location")) orelse return c.fail(.bad_request, "missing location");
     const location = try core.location.resolve(c.arena, c.io, raw);
-    return c.json(.ok, .{ .elicitations = try s.runtime.elicitations(c.arena, location) });
+    return c.json(.ok, .{ .questions = try s.runtime.questions(c.arena, location) });
 }
 
-/// `POST {"action": "accept"|"decline"|"cancel", "content"?: {…}}`.
-pub fn elicitationReply(s: *Server, c: *Ctx, id: []const u8) !void {
+/// `POST {"action": "accept"|"decline"|"cancel", "content"?: …}`; what
+/// `content` holds depends on the question's kind.
+pub fn questionReply(s: *Server, c: *Ctx, id: []const u8) !void {
     if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
     const body = try c.bodyJson(struct { action: []const u8, content: ?std.json.Value = null });
     const action = std.meta.stringToEnum(@import("plugin").ask.Action, body.action) orelse return c.fail(.bad_request, "invalid action");
-    if (action == .accept and (body.content == null or body.content.? != .object)) return c.fail(.bad_request, "accept needs an object as content");
     const content = if (body.content) |v| try std.json.Stringify.valueAlloc(c.arena, v, .{}) else null;
     var problem: []const u8 = "";
-    const found = s.runtime.replyElicitation(c.arena, id, action, content, &problem) catch |err| switch (err) {
+    const found = s.runtime.replyQuestion(c.arena, id, action, content, &problem) catch |err| switch (err) {
         error.InvalidContent => return c.fail(.bad_request, problem),
         else => |e| return e,
     };

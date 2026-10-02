@@ -291,7 +291,7 @@ test "tool calls cut off by the length limit are failed and sent back" {
     try std.testing.expectEqual(@as(usize, 2), fake.calls);
 }
 
-test "denied tool is logged before ending the turn without another model step" {
+test "a tool call a hook denies is logged before ending the turn without another model step" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
@@ -307,8 +307,8 @@ test "denied tool is logged before ending the turn without another model step" {
     defer inbox.deinit();
     try inbox.push("msg_user", "try", .queue);
     const Gate = struct {
-        fn deny(_: ?*anyopaque, _: Allocator, _: Io, _: []const u8, _: plugin.tool.Tool, _: *std.json.Value, _: proto.message.ToolCall) anyerror!@import("tools.zig").Verdict {
-            return .deny;
+        fn deny(_: ?*anyopaque, _: Allocator, _: Io, _: plugin.hook.Scope, _: plugin.hook.Call) anyerror!plugin.hook.ToolPre {
+            return .{ .deny = "The user denied this call." };
         }
         fn tool(_: ?*anyopaque, _: Allocator, _: Io, _: []const u8, _: std.json.Value, _: plugin.tool.ProgressSink) anyerror!plugin.tool.Result {
             return error.ToolMustNotRun;
@@ -329,7 +329,7 @@ test "denied tool is logged before ending the turn without another model step" {
             .model_id = "m",
             .system = "",
             .executable_tools = &.{.{ .name = "restricted", .description = "", .input_schema = "{}", .execute = Gate.tool }},
-            .approval = .{ .ctx = null, .check = Gate.deny },
+            .hooks = &.{.{ .plugin = "guard", .value = .{ .point = .{ .tool_pre = Gate.deny } } }},
         },
     };
     try loop.run();

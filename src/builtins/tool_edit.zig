@@ -13,7 +13,6 @@ pub const tool: plugin.tool.Tool = .{
     \\{"type":"object","properties":{"path":{"type":"string","minLength":1},"edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{"oldText":{"type":"string","minLength":1},"newText":{"type":"string"}},"required":["oldText","newText"],"additionalProperties":false}}},"required":["path","edits"],"additionalProperties":false}
     ,
     .side_effect = .workspace,
-    .permission = .{ .target = .path, .arg = "path" },
     .execution_mode = .sequential,
     .execute = execute,
 };
@@ -24,7 +23,6 @@ test "edit declaration uses supported schema and sequential workspace policy" {
     try plugin.schema.check(parsed.value);
     try std.testing.expectEqual(plugin.tool.ExecutionMode.sequential, tool.execution_mode);
     try std.testing.expectEqual(plugin.tool.SideEffect.workspace, tool.side_effect);
-    try tool.checkPermission(parsed.value);
 }
 
 const Replacement = struct { start: usize, old_len: usize, new_text: []const u8 };

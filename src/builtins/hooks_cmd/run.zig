@@ -18,8 +18,9 @@ pub const max_output = 32 * 1024;
 pub const Reply = struct {
     /// Block, deny, or (for Stop) keep going, with this reason.
     block: ?[]const u8 = null,
-    /// Permission granted without asking.
-    allow: bool = false,
+    /// Ask the user before the tool call runs, with this reason (may be
+    /// empty).
+    ask: ?[]const u8 = null,
     /// Replacement tool arguments.
     updated_input: ?Value = null,
     /// Text for the model.
@@ -96,7 +97,6 @@ pub fn interpret(arena: Allocator, stdout: []const u8) !Reply {
     };
     if (string(o, "decision")) |decision| {
         if (std.mem.eql(u8, decision, "block")) reply.block = reply.block orelse string(o, "reason") orelse "Blocked by a hook.";
-        if (std.mem.eql(u8, decision, "approve")) reply.allow = true;
     }
     const specific = switch (o.get("hookSpecificOutput") orelse .null) {
         .object => |s| s,
@@ -105,18 +105,10 @@ pub fn interpret(arena: Allocator, stdout: []const u8) !Reply {
     if (string(specific, "additionalContext")) |text_| reply.context = text_;
     if (string(specific, "permissionDecision")) |decision| {
         if (std.mem.eql(u8, decision, "deny")) reply.block = string(specific, "permissionDecisionReason") orelse "Denied by a hook.";
-        if (std.mem.eql(u8, decision, "allow")) reply.allow = true;
+        if (std.mem.eql(u8, decision, "ask")) reply.ask = string(specific, "permissionDecisionReason") orelse "";
     }
     if (specific.get("updatedInput")) |input| if (input == .object) {
         reply.updated_input = input;
-    };
-    if (specific.get("decision")) |d| if (d == .object) {
-        const behavior = string(d.object, "behavior") orelse "";
-        if (std.mem.eql(u8, behavior, "allow")) reply.allow = true;
-        if (std.mem.eql(u8, behavior, "deny")) reply.block = string(d.object, "message") orelse "Denied by a hook.";
-        if (d.object.get("updatedInput")) |input| if (input == .object) {
-            reply.updated_input = input;
-        };
     };
     return reply;
 }
@@ -130,7 +122,7 @@ fn string(o: std.json.ObjectMap, name: []const u8) ?[]const u8 {
 
 const testing = std.testing;
 
-test "json replies: blocks, permission answers, rewritten input and context" {
+test "json replies: blocks, asks, rewritten input and context" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -144,12 +136,13 @@ test "json replies: blocks, permission answers, rewritten input and context" {
     const rewrite = try interpret(a,
         \\{"hookSpecificOutput":{"permissionDecision":"allow","updatedInput":{"command":"ls"}}}
     );
-    try testing.expect(rewrite.allow and rewrite.block == null);
+    try testing.expect(rewrite.block == null and rewrite.ask == null);
     try testing.expectEqualStrings("ls", rewrite.updated_input.?.object.get("command").?.string);
     const ask = try interpret(a,
-        \\{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"not now"}}}
+        \\{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"writes outside"}}
     );
-    try testing.expectEqualStrings("not now", ask.block.?);
+    try testing.expectEqualStrings("writes outside", ask.ask.?);
+    try testing.expect(ask.block == null);
     try testing.expectEqualStrings("ctx", (try interpret(a, "{\"hookSpecificOutput\":{\"additionalContext\":\"ctx\"}}")).context.?);
     try testing.expectError(error.InvalidHookOutput, interpret(a, "{broken"));
 }
@@ -172,6 +165,6 @@ test "exit 2 blocks with stderr, other failures are errors, stdin carries the ev
     try testing.expectEqualStrings("ses_1", (try run(a, testing.io, call)).block.?);
     call.command.command = "exit 1";
     try testing.expectError(error.HookFailed, run(a, testing.io, call));
-    call.command.command = "cat >/dev/null; echo '{\"decision\":\"approve\"}'";
-    try testing.expect((try run(a, testing.io, call)).allow);
+    call.command.command = "cat >/dev/null; echo '{\"hookSpecificOutput\":{\"permissionDecision\":\"ask\"}}'";
+    try testing.expectEqualStrings("", (try run(a, testing.io, call)).ask.?);
 }

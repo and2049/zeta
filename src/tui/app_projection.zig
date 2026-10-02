@@ -13,6 +13,7 @@ pub fn sync(app: *App, state: *const client.state.State) !void {
     _ = app.message_arena.reset(.retain_capacity);
     const a = app.message_arena.allocator();
     app.connected = true;
+    if (!std.mem.eql(u8, app.session_location, snapshot.info.location)) try app.setSessionLocation(snapshot.info.location);
     app.running = snapshot.running;
     app.title = try a.dupe(u8, snapshot.info.title orelse "Untitled session");
     app.named = if (snapshot.info.title) |title| title.len > 0 else false;
@@ -58,14 +59,6 @@ pub fn sync(app: *App, state: *const client.state.State) !void {
         .text = try a.dupe(u8, entry.text),
         .delivery = try a.dupe(u8, @tagName(entry.delivery)),
     });
-    if (snapshot.pendingPermissions.len > 0) {
-        const permission = snapshot.pendingPermissions[0];
-        app.permission = .{ .id = try a.dupe(u8, permission.id), .action = try a.dupe(u8, permission.action), .pattern = try a.dupe(u8, permission.pattern), .expires_at = permission.expiresAt };
-        if (app.overlay == .none) app.overlay = .permission;
-    } else {
-        app.permission = null;
-        if (app.overlay == .permission) app.overlay = .none;
-    }
     app.render_revision +%= 1;
 }
 
@@ -194,7 +187,6 @@ test "projection deep copies display fields and preserves reasoning and tool arg
         .options = .{ .model = "model" },
         .running = true,
         .inbox = &.{.{ .id = "inbox", .text = "queued", .delivery = .queue }},
-        .pendingPermissions = &.{.{ .id = "p", .action = "edit", .pattern = "*", .expiresAt = 0 }},
         .messages = &entries,
         .inflight = null,
         .nextBefore = null,
@@ -208,7 +200,6 @@ test "projection deep copies display fields and preserves reasoning and tool arg
     try std.testing.expectEqualStrings("{\"path\":\"x\"}", app.messages.items[2].text);
     try std.testing.expect(app.messages.items[2].tool_running);
     try std.testing.expectEqualStrings("queued", app.pending.items[0].text);
-    try std.testing.expectEqualStrings("edit", app.permission.?.action);
     try std.testing.expectEqual(@as(u64, 12), app.usage_input);
     try std.testing.expectEqual(@as(u64, 5), app.usage_output);
 }
@@ -223,7 +214,7 @@ test "completed tool result clears outstanding call and retains error status" {
         .{ .id = "assistant", .role = .assistant, .timestamp = 0, .content = &.{.{ .tool_call = .{ .id = "call", .name = "write", .arguments = "{}" } }} },
         .{ .id = "result", .role = .tool_result, .timestamp = 1, .content = &.{.{ .text = "failed" }}, .toolCallId = "call", .toolName = "write", .isError = true, .changes = &.{.{ .path = "x", .before = "old", .after = "new", .truncated = true }} },
     };
-    state.snapshot = .{ .revision = 1, .info = .{ .id = "s", .location = "/tmp", .created = 0 }, .options = .{}, .running = true, .inbox = &.{}, .pendingPermissions = &.{}, .messages = &entries, .inflight = null, .nextBefore = null };
+    state.snapshot = .{ .revision = 1, .info = .{ .id = "s", .location = "/tmp", .created = 0 }, .options = .{}, .running = true, .inbox = &.{}, .messages = &entries, .inflight = null, .nextBefore = null };
     try sync(&app, &state);
     try std.testing.expectEqual(@as(usize, 1), app.messages.items.len);
     try std.testing.expect(!app.messages.items[0].tool_running);
@@ -244,7 +235,7 @@ test "finished turns get a footer with their duration and outcome" {
         .{ .id = "u2", .role = .user, .timestamp = 70_000, .content = &.{.{ .text = "again" }} },
         .{ .id = "a2", .role = .assistant, .timestamp = 71_000, .completedAt = 72_000, .stopReason = .aborted, .content = &.{} },
     };
-    state.snapshot = .{ .revision = 1, .info = .{ .id = "s", .location = "/tmp", .created = 0 }, .options = .{}, .running = false, .inbox = &.{}, .pendingPermissions = &.{}, .messages = &entries, .inflight = null, .nextBefore = null };
+    state.snapshot = .{ .revision = 1, .info = .{ .id = "s", .location = "/tmp", .created = 0 }, .options = .{}, .running = false, .inbox = &.{}, .messages = &entries, .inflight = null, .nextBefore = null };
     try sync(&app, &state);
     var turns: [2]App.Turn = undefined;
     var n: usize = 0;

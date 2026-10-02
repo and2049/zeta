@@ -8,7 +8,6 @@ const plugin = @import("plugin");
 const proto = @import("proto");
 const types = proto.event.types;
 const default_api = @import("test_provider.zig").api_id;
-const permissions = @import("permissions.zig");
 
 test "restore retains selectors, snapshot pages by exclusive cursor, abort and delete idle session" {
     const gpa = std.testing.allocator;

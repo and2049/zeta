@@ -1,18 +1,23 @@
 //! The runtime's side of questions plugins ask the user (see
-//! `elicitation.zig`).
+//! `questions.zig`).
 const std = @import("std");
 const plugin = @import("plugin");
 const Runtime = @import("Runtime.zig");
-const elicitation = @import("elicitation.zig");
+const questions = @import("questions.zig");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 /// What plugins ask through; `rt` must outlive them.
 pub fn asker(rt: *Runtime) plugin.ask.Asker {
-    return .{ .ctx = rt, .ask = ask };
+    return .{ .ctx = rt, .ask = ask, .notify = notify };
 }
 
-fn asks(rt: *Runtime) *elicitation.Asks {
+fn notify(ctx: ?*anyopaque, notice: plugin.ask.Notice) anyerror!void {
+    const rt: *Runtime = @ptrCast(@alignCast(ctx.?));
+    return asks(rt).notify(notice);
+}
+
+fn asks(rt: *Runtime) *questions.Asks {
     rt.mutex.lockUncancelable(rt.io);
     defer rt.mutex.unlock(rt.io);
     if (rt.asks == null) rt.asks = .init(rt.gpa, rt.io, rt.bus, &rt.ids);
@@ -31,6 +36,6 @@ pub fn reply(rt: *Runtime, arena: Allocator, id: []const u8, action: plugin.ask.
 }
 
 /// Open questions for `location`, in `arena`.
-pub fn list(rt: *Runtime, arena: Allocator, location: []const u8) ![]const elicitation.Asks.Info {
+pub fn list(rt: *Runtime, arena: Allocator, location: []const u8) ![]const questions.Asks.Info {
     return asks(rt).list(arena, location);
 }

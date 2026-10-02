@@ -21,6 +21,10 @@ connect_instructions_offset: usize = 0,
 connect_page_width: usize = 40,
 connect_browser: bool = false,
 cwd: []const u8,
+/// Server project location of the selected session, not necessarily the
+/// directory typed for `/cd`. Owned separately from the projection arena.
+session_location: []const u8 = "",
+session_location_owned: ?[]u8 = null,
 /// The user's home directory, shown as `~`; empty when unknown.
 home: []const u8 = "",
 session: ?[]const u8 = null,
@@ -99,11 +103,11 @@ editor: Editor,
 drafts: std.StringHashMapUnmanaged([]u8) = .empty,
 messages: std.ArrayList(Message) = .empty,
 pending: std.ArrayList(Pending) = .empty,
-permission: ?Permission = null,
+questions: @import("questions.zig").Queue,
 attachments: std.ArrayList([]const u8) = .empty,
 embedded_images: std.ArrayList(proto.attachment.Image) = .empty,
 
-pub const Overlay = enum { none, help, models, thinking, sessions, pending, permission, connect_providers, connect_methods, connect_key, connect_oauth };
+pub const Overlay = enum { none, help, models, thinking, sessions, pending, question, connect_providers, connect_methods, connect_key, connect_oauth };
 pub const Message = struct {
     role: []const u8,
     /// For a tool call, its JSON arguments.
@@ -140,16 +144,16 @@ pub const Deferred = struct {
     /// JSON `Draft`, owned by the app allocator.
     draft: []u8,
 };
-pub const Permission = struct { id: []const u8, action: []const u8, pattern: []const u8, expires_at: i64 };
 
 pub fn init(a: std.mem.Allocator, cwd: []const u8) App {
-    return .{ .allocator = a, .cwd = cwd, .editor = Editor.init(a), .message_arena = .init(a), .picker_arena = .init(a), .connect_arena = .init(a), .template_arena = .init(a), .file_arena = .init(a), .directory_arena = .init(a) };
+    return .{ .allocator = a, .cwd = cwd, .questions = .{ .allocator = a }, .editor = Editor.init(a), .message_arena = .init(a), .picker_arena = .init(a), .connect_arena = .init(a), .template_arena = .init(a), .file_arena = .init(a), .directory_arena = .init(a) };
 }
 
 pub fn deinit(self: *App) void {
     if (self.deferred_send) |deferred| self.allocator.free(deferred.draft);
     self.clearInput();
     self.editor.deinit();
+    self.questions.deinit();
     if (self.model_owned) |name| self.allocator.free(name);
     self.message_arena.deinit();
     self.picker_arena.deinit();
@@ -157,6 +161,7 @@ pub fn deinit(self: *App) void {
     self.file_arena.deinit();
     self.directory_arena.deinit();
     if (self.cwd_owned) |owned| self.allocator.free(owned);
+    if (self.session_location_owned) |owned| self.allocator.free(owned);
     self.clearSecret();
     self.connect_secret.deinit(self.allocator);
     self.connect_arena.deinit();
@@ -174,6 +179,14 @@ pub fn deinit(self: *App) void {
 pub fn clearSecret(self: *App) void {
     @memset(self.connect_secret.items, 0);
     self.connect_secret.clearRetainingCapacity();
+}
+
+pub fn ask(self: *App, data: std.json.Value, envelope_session: ?[]const u8, location: ?[]const u8) !void {
+    if (try self.questions.add(data, envelope_session, location, self.session, self.session_location) and self.overlay == .none) self.overlay = .question;
+}
+
+pub fn resolve(self: *App, id: []const u8) void {
+    if (self.questions.remove(id) and self.overlay == .question and self.questions.items.items.len == 0) self.overlay = .none;
 }
 
 /// Save the old draft and restore the target's draft. Session strings must
@@ -200,7 +213,8 @@ pub fn switchSession(self: *App, id: []const u8) !void {
     self.title = "Loading session…";
     self.named = false;
     self.render_revision +%= 1;
-    self.permission = null;
+    self.questions.clear();
+    self.setSessionLocation("") catch unreachable;
     self.running = false;
     self.thinking = "";
     self.cost = 0;
@@ -235,6 +249,13 @@ pub fn setCwd(self: *App, path: []const u8) !void {
     self.directories = &.{};
     self.directory_parent = null;
     _ = self.directory_arena.reset(.free_all);
+}
+
+pub fn setSessionLocation(self: *App, location: []const u8) !void {
+    const owned = try self.allocator.dupe(u8, location);
+    if (self.session_location_owned) |old| self.allocator.free(old);
+    self.session_location_owned = owned;
+    self.session_location = owned;
 }
 
 /// Shows a picker in the dock; `waiting` until its items arrive.

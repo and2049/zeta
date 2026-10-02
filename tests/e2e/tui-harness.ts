@@ -15,14 +15,15 @@ export class Tui {
   process: ReturnType<typeof Bun.spawn>;
   original: number[];
 
-  constructor(sb: Sandbox) {
+  /** `args` run another command than the full-screen client, e.g. `run`. */
+  constructor(sb: Sandbox, args: string[] = []) {
     const decoder = new TextDecoder();
     this.terminal = new Bun.Terminal({
       cols: 90, rows: 28,
       data: (_terminal, bytes) => { this.output += decoder.decode(bytes, { stream: true }); },
     });
     this.original = this.flags();
-    this.process = Bun.spawn([zetaBin], {
+    this.process = Bun.spawn([zetaBin, ...args], {
       cwd: sb.project, env: { ...sb.env, TERM: "xterm-256color" }, terminal: this.terminal,
     });
   }

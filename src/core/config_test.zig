@@ -69,7 +69,7 @@ test "profiles, CLI, environment precedence and source of nested keys" {
         \\{"model":"user/one","small_model":"user/small","provider":{"p":{"options":{"apiKey":"secret"},"models":{"m":{"name":"custom","limit":{"context":100}}}}}}
     });
     try tmp.dir.writeFile(io, .{ .sub_path = "proj/.zeta/zeta.jsonc", .data =
-        \\{"model":"project/two","tool_timeout_ms":300,"permission":[{"action":"read","pattern":"*","effect":"ask"}],"provider":{"p":{"models":{"m":{"limit":{"output":20}}}}}}
+        \\{"model":"project/two","tool_timeout_ms":300,"inspect_tool":true,"provider":{"p":{"models":{"m":{"limit":{"output":20}}}}}}
     });
     try tmp.dir.writeFile(io, .{ .sub_path = "cfg/profiles/dev.jsonc", .data =
         \\{"model":"user-profile/three","provider":{"p":{"models":{"m":{"name":"profile"}}}}}
@@ -89,10 +89,10 @@ test "profiles, CLI, environment precedence and source of nested keys" {
     try std.testing.expectEqual(Source.project_profile, profile.source("model").?);
     try std.testing.expectEqual(Source.project_profile, profile.source("tool_timeout_ms").?);
     try std.testing.expectEqual(Source.user, profile.source("small_model").?);
-    try std.testing.expectEqual(Source.project, profile.source("permission").?);
+    try std.testing.expectEqual(Source.project, profile.source("inspect_tool").?);
     try std.testing.expectEqual(@as(u64, 400), profile.tool_timeout_ms);
     try std.testing.expectEqualStrings("user/small", profile.small_model.?);
-    try std.testing.expectEqual(@as(usize, 1), profile.permission.len);
+    try std.testing.expect(profile.inspect_tool);
     try std.testing.expectEqualStrings("secret", profile.providerOptions("p").apiKey.?);
     const model = profile.provider.map.get("p").?.models.map.get("m").?.object;
     try std.testing.expectEqualStrings("profile", model.get("name").?.string);
@@ -125,7 +125,6 @@ test "profile names cannot escape profile directory and missing profiles fail" {
     const defaults = try load(arena, io, &env, base, base);
     try std.testing.expectEqual(@as(u64, 120_000), defaults.tool_timeout_ms);
     try std.testing.expectEqual(Source.defaults, defaults.source("tool_timeout_ms").?);
-    try std.testing.expectEqual(@as(usize, 0), defaults.permission.len);
     for ([_][]const u8{ "", "..", "../evil", "a/b", "a.b", "\\bad" }) |name| {
         try std.testing.expectError(error.InvalidProfile, loadWithOptions(arena, io, &env, base, base, .{ .profile = name }));
     }

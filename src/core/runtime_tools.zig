@@ -32,7 +32,6 @@ pub fn validatePrepared(arena: Allocator, registered_tools: []const plugin.tool.
         for (added[0..index]) |earlier| if (std.mem.eql(u8, earlier.name, tool.name)) return error.DuplicateRegistration;
         const schema = std.json.parseFromSliceLeaky(std.json.Value, arena, tool.input_schema, .{}) catch return error.InvalidSchema;
         try plugin.schema.check(schema);
-        try tool.checkPermission(schema);
     }
 }
 

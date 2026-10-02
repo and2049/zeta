@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeOpenAI } from "./fake-openai";
 import { Sandbox, jsonEvents } from "./harness";
@@ -10,10 +10,14 @@ let llm: FakeOpenAI;
 beforeEach(() => {
   sb = new Sandbox();
   llm = new FakeOpenAI();
+  // The example permissions extension asks about files outside the project,
+  // and nobody is there to answer: only reads it lets through succeed.
+  mkdirSync(join(sb.project, ".zeta", "extensions"), { recursive: true });
+  cpSync(join(import.meta.dir, "../../docs/examples/extensions/permissions"), join(sb.project, ".zeta", "extensions", "permissions"), { recursive: true });
   sb.writeConfig({
     model: "fake/test-model",
     provider: { fake: { options: { baseURL: llm.baseURL } } },
-    permission: [{ action: "external_directory", pattern: "*", effect: "ask" }],
+    plugin: { permissions: { outside: "ask" } },
     mcp: { servers: { fake: { type: "local", command: [process.execPath, join(import.meta.dir, "fake-mcp.ts")] } } },
   });
 });

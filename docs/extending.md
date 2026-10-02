@@ -18,8 +18,8 @@ How to add a capability to zeta, or change how it behaves, and check that the ch
 | knowledge or a procedure the model loads only when relevant | a skill | [skills](skills.md) |
 | a reusable prompt behind `/name` | a prompt template | [prompt templates](commands.md) |
 | a different model, provider endpoint, timeout or other setting | `zeta.jsonc` | [configuration](configuration.md) |
-| some tool calls allowed, asked about or refused | `permission` rules | [permissions](permissions.md) |
-| a shell command run when a session starts, a prompt is sent, around tool calls, at a permission question, or when the agent stops | a command hook | [command hooks](hooks.md) |
+| some tool calls allowed, asked about or refused | a `tool_pre` hook: the example permissions extension, or a command hook | [permissions](permissions.md) |
+| a shell command run when a session starts, a prompt is sent, around tool calls, or when the agent stops | a command hook | [command hooks](hooks.md) |
 | tools from an existing MCP server | `mcp` in `zeta.jsonc` | [MCP servers](mcp.md) |
 | a new tool, a command computed by code, a hook with logic, or a model provider zeta has no built-in support for | an extension | [extensions](extensions.md) |
 | a model on an OpenAI-compatible endpoint | `provider.<id>` in config, not an extension | [providers](providers.md) |
@@ -115,7 +115,7 @@ Settings for an extension go under `plugin.<name>` in `zeta.jsonc` and arrive in
 
 ## Recipes
 
-- **Block a dangerous command** without code: a `PreToolUse` hook on `bash` that exits 2 with a reason on stderr ([command hooks](hooks.md)), or a `deny` rule with a pattern ([permissions](permissions.md)).
+- **Block a dangerous command** without code: a `PreToolUse` hook on `bash` that exits 2 with a reason on stderr ([command hooks](hooks.md)), or a rule in the example permissions extension ([permissions](permissions.md)).
 - **Add project context at the start of every session:** a line in the project's `AGENTS.md`; for context computed at the time, a `SessionStart` hook printing `{"additionalContext": "…"}`.
 - **A `/review` command:** `.zeta/prompts/review.md` with `$1` for the path ([prompt templates](commands.md)).
 - **A team procedure the model should follow when relevant:** `.zeta/skills/<name>/SKILL.md` with a description that says when to use it ([skills](skills.md)).

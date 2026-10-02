@@ -5,7 +5,6 @@ const Allocator = std.mem.Allocator;
 const proto = @import("proto");
 const Runtime = @import("Runtime.zig");
 const config = @import("config.zig");
-const permissions = @import("permissions.zig");
 const types = proto.event.types;
 const session_storage = @import("session_storage.zig");
 const Snapshot = Runtime.Snapshot;
@@ -100,7 +99,6 @@ pub fn snapshotPage(rt: *Runtime, arena: Allocator, id: []const u8, before: ?[]c
         .options = try withThinking(arena, try copyOptions(arena, entry.overrides), entry.session.metadata.thinking),
         .running = entry.running,
         .inbox = try entry.inbox.snapshot(arena),
-        .pendingPermissions = if (rt.broker) |*broker| try broker.snapshot(arena, id) else &.{},
         .messages = page,
         .inflight = if (entry.draft) |draft| try copyMessage(arena, draft) else null,
         .nextBefore = if (start > 0) try arena.dupe(u8, history[start].id) else null,
@@ -221,7 +219,6 @@ pub fn deleteSession(rt: *Runtime, id: []const u8) !void {
     _ = rt.sessions.remove(id);
     entry.inbox.deinit();
     if (entry.pending_options) |pending| freeOverrides(rt, pending);
-    if (rt.broker) |*broker| broker.clearSession(id);
     freeOverrides(rt, entry.overrides);
     entry.session.destroy(rt.gpa, rt.io);
     rt.gpa.destroy(entry);

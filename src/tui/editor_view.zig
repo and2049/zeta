@@ -1,10 +1,11 @@
 //! Draws the editor input in the dock: wrapped rows with one column of
 //! padding, scrolled so the cursor stays visible.
 const std = @import("std");
-const Screen = @import("screen.zig").Screen;
+const screen_mod = @import("screen.zig");
+const Screen = screen_mod.Screen;
 const width = @import("width.zig");
 
-pub const Cursor = struct { x: usize, y: usize };
+pub const Cursor = screen_mod.Cursor;
 
 /// Blank columns on each side of the text.
 const pad = 1;

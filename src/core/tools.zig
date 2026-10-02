@@ -23,23 +23,6 @@ pub const Outcome = struct {
     images: []const proto.attachment.Image = &.{},
 };
 
-/// Optional policy gate; called after parsing/schema validation, before the
-/// tool is invoked. An approval may replace `args` (a permission hook
-/// rewrote them); they are checked against the schema again.
-pub const Approval = struct {
-    ctx: ?*anyopaque,
-    check: *const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, location: []const u8, tool: plugin.tool.Tool, args: *std.json.Value, call: Call) anyerror!Verdict,
-};
-
-pub const Verdict = union(enum) {
-    allow,
-    /// Denied by policy or the user: the turn ends. An error from the gate
-    /// counts as this too.
-    deny,
-    /// Refused with a reason for the model (a hook); the turn goes on.
-    block: []const u8,
-};
-
 /// One outcome per call, in call order. `failure` is set when the batch was
 /// canceled or failed part-way: calls that finished keep their real results,
 /// the rest carry `interrupted`.
@@ -54,7 +37,7 @@ pub const interrupted = "Tool execution interrupted before results were availabl
 /// snapshot for the duration of this batch. An error return means no tool ran.
 /// `artifacts`, when set, is where oversized results are saved in full
 /// (see artifacts.zig); without it they are cut at the budget.
-pub fn execute(arena: Allocator, gpa: Allocator, io: Io, bus: *Bus, session: []const u8, location: []const u8, tools: []const plugin.tool.Tool, calls: []const Call, truncated: bool, approval: ?Approval, timeout_ms: ?u64, hooks: Hooks, artifacts: ?[]const u8) !Batch {
+pub fn execute(arena: Allocator, gpa: Allocator, io: Io, bus: *Bus, session: []const u8, location: []const u8, tools: []const plugin.tool.Tool, calls: []const Call, truncated: bool, timeout_ms: ?u64, hooks: Hooks, artifacts: ?[]const u8) !Batch {
     const tasks = try arena.alloc(Task, calls.len);
     for (tasks, calls) |*task, call| task.* = .{
         .call = call,
@@ -64,7 +47,6 @@ pub fn execute(arena: Allocator, gpa: Allocator, io: Io, bus: *Bus, session: []c
         .session = session,
         .location = location,
         .truncated = truncated,
-        .approval = approval,
         .timeout_ms = timeout_ms,
         .hooks = hooks,
         .artifacts = artifacts,
@@ -74,7 +56,7 @@ pub fn execute(arena: Allocator, gpa: Allocator, io: Io, bus: *Bus, session: []c
 
     const failure: ?anyerror = if (schedule(io, tasks)) |next| blk: {
         // Every assistant tool call needs a result, but no later barrier may
-        // run once permission was denied in an earlier segment.
+        // run once a hook denied a call in an earlier segment.
         for (tasks[next..]) |*task| task.skip() catch |err| break :blk err;
         break :blk null;
     } else |err| err;
@@ -160,7 +142,6 @@ pub const Task = struct {
     session: []const u8,
     location: []const u8,
     truncated: bool,
-    approval: ?Approval,
     timeout_ms: ?u64,
     hooks: Hooks,
     artifacts: ?[]const u8 = null,
@@ -200,19 +181,12 @@ pub const Task = struct {
         return found.execution_mode == .sequential;
     }
 
-    /// The call as the permission gate sees it: a dispatch call as a call
-    /// of its target.
-    pub fn gateCall(t: *Task) Call {
-        const target = t.target orelse return t.call;
-        return .{ .id = t.call.id, .name = target.name, .arguments = t.call.arguments };
-    }
-
     pub fn emit(t: *Task, ty: []const u8, data: anytype) !void {
         try t.bus.publishValue(ty, t.session, t.location, data);
     }
 
     fn skip(t: *Task) !void {
-        t.text = "Tool not executed because an earlier tool was denied permission.";
+        t.text = "Tool not executed because an earlier tool call was denied.";
         t.denied = true;
         t.finished = true;
         try t.emit(proto.event.types.tool_execution_start, .{ .toolCallId = t.call.id, .toolName = t.call.name, .args = t.call.arguments });

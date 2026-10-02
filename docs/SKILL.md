@@ -13,7 +13,7 @@ The pages below sit next to this file. Find the row for the task, read its first
 | add or change a capability (pick the mechanism, then verify it) | `extending.md` | the page it points to |
 | change a setting, model or provider endpoint | `configuration.md` | `examples/zeta.jsonc`, `generated/reference.md` |
 | set up a provider, key or sign-in | `providers.md` | `credentials.md` |
-| allow, ask about or refuse tool calls | `permissions.md` | `tools.md` |
+| allow, ask about or refuse tool calls | `permissions.md` | `examples/extensions/permissions/`, `hooks.md` |
 | add standing instructions or a skill | `skills.md` | `extending.md` |
 | add a slash command that expands to a prompt | `commands.md` | |
 | run shell commands at hook points | `hooks.md` | `tools.md` (hook points) |

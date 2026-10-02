@@ -12,7 +12,6 @@ pub const tool: plugin.tool.Tool = .{
     \\{"type":"object","properties":{"path":{"type":"string","minLength":1},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}
     ,
     .side_effect = .workspace,
-    .permission = .{ .target = .path, .arg = "path" },
     .execution_mode = .sequential,
     .execute = execute,
 };
@@ -23,7 +22,6 @@ test "write declaration uses supported schema and sequential workspace policy" {
     try plugin.schema.check(parsed.value);
     try std.testing.expectEqual(plugin.tool.ExecutionMode.sequential, tool.execution_mode);
     try std.testing.expectEqual(plugin.tool.SideEffect.workspace, tool.side_effect);
-    try tool.checkPermission(parsed.value);
 }
 
 fn execute(_: ?*anyopaque, arena: std.mem.Allocator, io: Io, location: []const u8, args: std.json.Value, sink: plugin.tool.ProgressSink) !plugin.tool.Result {
@@ -32,8 +30,8 @@ fn execute(_: ?*anyopaque, arena: std.mem.Allocator, io: Io, location: []const u
     const content = args.object.get("content") orelse return error.InvalidArguments;
     if (path_value != .string or path_value.string.len == 0 or content != .string) return error.InvalidArguments;
     // std.fs.path.resolve respects absolute input paths and resolves relative
-    // paths against location. Permission checks for external paths belong to
-    // the dispatcher, before this callback is invoked.
+    // paths against location. tool_pre hooks saw the same path before this
+    // callback runs.
     const path = try std.fs.path.resolve(arena, &.{ location, path_value.string });
     const before = try diff.previous(arena, io, path);
     // The result is fully built first: once the file is replaced, nothing

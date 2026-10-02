@@ -6,7 +6,7 @@ const Io = std.Io;
 const A = std.mem.Allocator;
 const attachments = @import("app_attach.zig");
 
-pub const Kind = enum { create, move, directories, list_sessions, list_models, list_providers, save_key, start_oauth, status_oauth, cancel_oauth, open_url, files, get, config, page, prompt, abort, rename, auto_title, model, thinking, delete_session, reload, mcp, extensions, compact, fork, remove_inbox, edit_inbox, permission, list_commands, decline_question, decline_open, undo };
+pub const Kind = enum { create, move, directories, list_sessions, list_models, list_providers, save_key, start_oauth, status_oauth, cancel_oauth, open_url, files, get, config, page, prompt, abort, rename, auto_title, model, thinking, delete_session, reload, mcp, extensions, compact, fork, remove_inbox, edit_inbox, list_commands, answer_question, list_questions, undo };
 pub const Job = struct {
     kind: Kind,
     id: []const u8 = "",
@@ -241,16 +241,10 @@ pub const Worker = struct {
                 break :blk "{}";
             },
             .edit_inbox => try std.json.Stringify.valueAlloc(arena, try api.removeInboxItem(&c, arena, j.id, j.extra), .{}),
-            .permission => blk: {
-                try api.permissionReply(&c, arena, j.id, std.meta.stringToEnum(api.Reply, j.text) orelse .deny);
-                break :blk "{}";
-            },
-            .decline_open => blk: {
-                _ = try client.mcp.declineOpen(&c, arena, cwd, j.id);
-                break :blk "{}";
-            },
-            .decline_question => blk: {
-                try client.mcp.answer(&c, arena, j.id, "decline", null);
+            .list_questions => try std.json.Stringify.valueAlloc(arena, try client.questions.list(&c, arena, j.text), .{}),
+            .answer_question => blk: {
+                const content: ?std.json.Value = if (j.extra.len == 0) null else try std.json.parseFromSliceLeaky(std.json.Value, arena, j.extra, .{});
+                try client.questions.answer(&c, arena, j.id, j.text, content);
                 break :blk "{}";
             },
         };

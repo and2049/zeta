@@ -33,7 +33,7 @@ zeta never lets a stuck extension hold it up: pings and the shutdown message are
 {"type": "register", "name": "hello",
  "tools": [{"name": "word_count", "description": "Count words in a text",
             "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-            "permission": {"target": "none"}, "sideEffect": "none", "timeoutMs": 10000, "sequential": false}],
+            "sideEffect": "none", "timeoutMs": 10000, "sequential": false}],
  "commands": [{"name": "summarize", "description": "Summarize a file", "argumentHint": "<path>"}],
  "hooks": ["tool_pre", "prompt_submit"],
  "providers": [{"id": "echo", "name": "Echo", "models": [{"id": "echo-1", "name": "Echo 1", "context": 8192, "images": false}], "env": ["ECHO_API_KEY"]}]}
@@ -41,9 +41,9 @@ zeta never lets a stuck extension hold it up: pings and the shutdown message are
 
 All lists are optional.
 
-- **tools**: `parameters` is the JSON Schema of the arguments; zeta checks the keywords it supports and the extension checks the rest. `permission` says what permission rules see: `{"action"?: "…", "target": "none" | "path" | "command" | "url" | "value", "arg": "<argument name>"}` (see [permissions](permissions.md)); without it the action is the tool name and the pattern `*`. `sideEffect` is `none`, `read`, `workspace` (default), `network` or `system`. `timeoutMs` overrides the tool timeout; `sequential: true` keeps the tool out of parallel batches; `cancellable: false` makes an abort wait for the call and its `tool_post` hooks to finish (within its timeout) and keep the hooked result, instead of cancelling it.
+- **tools**: `parameters` is the JSON Schema of the arguments; zeta checks the keywords it supports and the extension checks the rest. `sideEffect` is `none`, `read`, `workspace` (default), `network` or `system`. `timeoutMs` overrides the tool timeout; `sequential: true` keeps the tool out of parallel batches; `cancellable: false` makes an abort wait for the call and its `tool_post` hooks to finish (within its timeout) and keep the hooked result, instead of cancelling it.
 - **commands**: slash commands. Running one asks the extension for the prompt text (see `command` below). Names the terminal client uses itself (`new`, `model`, `reload`, …) are refused.
-- **hooks**: hook points to receive: `session_start`, `prompt_submit`, `tool_pre`, `permission`, `tool_post`, `turn_stop` (see [tools](tools.md#hook-points)). They run in plugin load order with the other hooks.
+- **hooks**: hook points to receive: `session_start`, `prompt_submit`, `tool_pre`, `tool_post`, `turn_stop` (see [tools](tools.md#hook-points)). They run in plugin load order with the other hooks.
 - **providers**: model providers, used as `<id>/<model>` in `model`. zeta resolves the API key like for built-in providers (`provider.<id>.options.apiKey`, a key saved with `zeta auth login <id>`, then the `env` variables) and a `baseURL` from config, and passes both with each request. `images: true` lets a model take image input; `reasoning: true` makes it take a thinking level (config's `thinkingLevels`, `thinking` and `reasoning` for the model apply too).
 
 zeta answers:
@@ -69,12 +69,11 @@ Every request's `params` has `location`, the project it is for.
 - **hook** `{"point", "location", "scope": {"session", "provider", "model"}, …}` with, per point:
   - `session_start` `{"source": "startup" | "resume"}` → `{"context"?: "text for the model"}`
   - `prompt_submit` `{"prompt": {"id", "text"}}` → `{"action": "continue"}`, `{"action": "context", "text"}` or `{"action": "block", "reason"}`
-  - `tool_pre` `{"call": {"id", "name", "arguments"}}` → `{"action": "continue"}`, `{"action": "rewrite", "arguments"}` or `{"action": "block", "reason"}`
-  - `permission` `{"call": {…}, "action", "pattern"}` → `{"action": "continue"}`, `{"action": "allow", "arguments"?}` or `{"action": "deny", "reason"}`
+  - `tool_pre` `{"call": {"id", "name", "arguments"}}` → `{"action": "continue"}`, `{"action": "rewrite", "arguments"}`, `{"action": "block", "reason"}` (the model gets the reason and the turn goes on) or `{"action": "deny", "reason"}` (the same, and the turn ends after this batch of calls, e.g. the user refused it)
   - `tool_post` `{"call": {…}, "result": {"text", "isError"}}` → `{"action": "continue"}` or `{"action": "replace", "result": {"text", "isError"?}}`
   - `turn_stop` `{"reply": {"text"}, "continued"}` → `{"action": "stop"}` or `{"action": "continue", "text"}`
 
-  An error answer, a timeout or a crash counts as a failing hook: `tool_pre` blocks, `permission` denies, others are skipped.
+  An error answer, a timeout or a crash counts as a failing hook: `tool_pre` blocks, others are skipped. A hook may ask the user (`ask` below) while zeta waits for its answer.
 - **stream** `{"provider", "model", "system", "messages", "tools", "options": {"apiKey"?, "baseURL"?}, "location", "session", "thinking"}` asks a provider for one reply for the run in `location` (`session` can serve as a prompt-cache key; `thinking` is a thinking level or null for the service's default). `messages` are zeta's messages (`role` `user`, `assistant` or `tool_result`, `content` blocks `text`, `thinking`, `toolCall`, `image`); `tools` are `{name, description, parameters}`. Send the reply as events, then the result:
   - `{"type": "event", "id": "7", "event": {"text": "…"}}`, `{"thinking": "…"}`
   - `{"toolCall": {"index": 0, "id"?: "call_1", "name"?: "read", "arguments"?: "{\"pa"}}}`: `arguments` are pieces of the JSON text, appended per index
@@ -95,3 +94,13 @@ zeta answers `{"type": "result", "id": "c1", "result": …}` or `{"type": "resul
 - `registry` `{"location"?}` returns the live listing, like `GET /registry`.
 - `messages` `{"session"}` returns the latest 200 messages of that session, `{"messages": […], "nextBefore"}`, read-only.
 - `credential` `{"provider"}` returns `{"apiKey": "…" | null}` for one of the extension's own providers.
+- `ask` puts a question to the user and returns `{"action": "accept" | "decline" | "cancel", "content"?}` once answered. Params: `message`, `kind` and the kind's fields, plus `location` (required for a user extension), `session` (the session it is about; clients of other sessions leave it alone), `request` (the id of the request from zeta it belongs to, e.g. a hook: that request then waits for the answer however long it takes, and the question is withdrawn, answering `cancel`, when the request ends) and `timeoutMs` (default five minutes; then it declines). Kinds:
+  - `confirm` `{"detail"?}`: accept means yes, decline no.
+  - `select` `{"options": [{"value", "label"?, "description"?}]}` (or plain strings): `content` is the chosen `value`.
+  - `input` `{"placeholder"?, "secret"?: true}`: `content` is the text.
+  - `form` `{"schema": {…}}`: a JSON Schema object of simple properties; `content` is an object fitting it.
+
+  With no client connected, or when the last one leaves, the question declines.
+- `notify` `{"message", "level"?: "info" | "warn" | "error", "location"?, "session"?}` shows a notice to the user.
+
+[`examples/extensions/permissions/`](examples/extensions/permissions/permissions.py) asks before tool calls with these.

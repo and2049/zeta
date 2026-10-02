@@ -5,14 +5,13 @@ const plugin = @import("plugin");
 const Allocator = std.mem.Allocator;
 const Value = std.json.Value;
 
-pub const Hook = enum { session_start, prompt_submit, tool_pre, permission, tool_post, turn_stop };
+pub const Hook = enum { session_start, prompt_submit, tool_pre, tool_post, turn_stop };
 
 pub const Tool = struct {
     name: []const u8,
     description: []const u8,
     /// JSON Schema text.
     parameters: []const u8,
-    permission: plugin.tool.Permission = .{},
     side_effect: plugin.tool.SideEffect = .workspace,
     timeout_ms: ?u64 = null,
     sequential: bool = false,
@@ -106,14 +105,6 @@ fn tool(arena: Allocator, v: Value) !Tool {
         .null => null,
         else => return error.InvalidTool,
     };
-    if (o.get("permission")) |p| {
-        if (p != .object) return error.InvalidTool;
-        out.permission = .{
-            .action = try str(p.object, "action"),
-            .target = if (try str(p.object, "target")) |t| std.meta.stringToEnum(plugin.tool.Target, t) orelse return error.InvalidTool else .none,
-            .arg = try str(p.object, "arg") orelse "",
-        };
-    }
     return out;
 }
 
@@ -173,13 +164,12 @@ test "a full registration and the mistakes it rejects" {
     const a = arena.allocator();
     const r = try parse(a,
         \\{"type":"register","name":"hello",
-        \\ "tools":[{"name":"wc","description":"count","parameters":{"type":"object"},"permission":{"target":"path","arg":"file"},"sideEffect":"read","timeoutMs":500,"sequential":true,"cancellable":false}],
+        \\ "tools":[{"name":"wc","description":"count","parameters":{"type":"object"},"sideEffect":"read","timeoutMs":500,"sequential":true,"cancellable":false}],
         \\ "commands":[{"name":"sum","argumentHint":"<path>"}],
         \\ "hooks":["tool_pre","turn_stop"],
         \\ "providers":[{"id":"echo","models":[{"id":"e1","context":100,"images":true}],"env":["ECHO_KEY"]}]}
     );
     try std.testing.expectEqualStrings("hello", r.name);
-    try std.testing.expectEqual(plugin.tool.Target.path, r.tools[0].permission.target);
     try std.testing.expectEqual(plugin.tool.SideEffect.read, r.tools[0].side_effect);
     try std.testing.expectEqual(@as(?u64, 500), r.tools[0].timeout_ms);
     try std.testing.expect(!r.tools[0].cancellable);
@@ -190,6 +180,7 @@ test "a full registration and the mistakes it rejects" {
     try std.testing.expect(r.providers[0].models[0].images);
     try std.testing.expectError(error.RegisterWithoutName, parse(a, "{\"type\":\"register\"}"));
     try std.testing.expectError(error.UnknownHookPoint, parse(a, "{\"name\":\"x\",\"hooks\":[\"context_build\"]}"));
+    try std.testing.expectError(error.UnknownHookPoint, parse(a, "{\"name\":\"x\",\"hooks\":[\"permission\"]}"));
     try std.testing.expectError(error.InvalidProvider, parse(a, "{\"name\":\"x\",\"providers\":[{\"id\":\"*\"}]}"));
     try std.testing.expectError(error.InvalidTool, parse(a, "{\"name\":\"x\",\"tools\":[{\"name\":\"t\",\"sequential\":\"true\"}]}"));
     try std.testing.expectError(error.InvalidTool, parse(a, "{\"name\":\"x\",\"tools\":[{\"name\":\"t\",\"cancellable\":0}]}"));

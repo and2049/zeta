@@ -1,46 +1,40 @@
 # Permissions
 
-Add ordered rules to `zeta.jsonc`; the last matching rule wins. Without a matching rule, calls are allowed.
+zeta has no built-in permission system: every tool call runs without asking. Approval is a plugin's job. A plugin's `tool_pre` hook sees each call before it runs and can let it through, rewrite its arguments, block it (the model gets the reason and goes on), or deny it (the turn ends). A hook can ask the user first: it puts a question to whichever client is attached and waits for the answer.
+
+## A ready-made policy
+
+`examples/extensions/permissions/` in these docs is a complete permission extension using only the Python standard library. To use it, copy the directory into `~/.config/zeta/extensions/` (or a project's `.zeta/extensions/`) and run `zeta reload`. Its settings go under `plugin.permissions` in `zeta.jsonc`:
 
 ```jsonc
 {
-  "permission": [
-    { "action": "bash", "pattern": "*", "effect": "ask" },
-    { "action": "write", "pattern": "*/secrets/*", "effect": "deny" },
-    { "action": "external_directory", "pattern": "*", "effect": "ask" }
-  ]
+  "plugin": {
+    "permissions": {
+      // Files outside the project: "ask" (the default), "allow" or "deny".
+      "outside": "ask",
+      // Checked in order, the last match wins; no match allows.
+      "rules": [
+        { "tool": "bash", "pattern": "*", "effect": "ask" },
+        { "tool": "bash", "pattern": "git status*", "effect": "allow" },
+        { "tool": "write", "pattern": "*/.env", "effect": "deny" },
+        { "tool": "mcp__github__*", "pattern": "*", "effect": "ask" }
+      ]
+    }
+  }
 }
 ```
 
-Effects are `allow`, `deny`, and `ask`. In actions and patterns, `*` matches any run of characters (including `/`) and `?` exactly one character; a trailing ` *` may also match nothing, so `git *` covers both `git` and `git status`. The action is the tool name unless the tool declares another. What the pattern matches is declared by each tool as a permission target naming one of its arguments: read/write/edit match canonical absolute paths, bash a command, webfetch a URL (checked again for every redirect target), and skill a skill name. A tool that declares no target is matched with the pattern `*`. Access to a file outside the project additionally checks `external_directory`. `GET /registry` shows each tool's declared permission.
+`tool` and `pattern` are shell-style wildcards (`*` also matches `/`). The pattern is matched against the absolute file path (symlinks resolved) for `read`, `write` and `edit`, the command for `bash`, the URL for `webfetch`, and the arguments as JSON for other tools. Paths outside the project are checked for `read`, `write` and `edit`, and for words of a `bash` command that look like paths; that bash check is a best effort, not a sandbox. Each question offers "Allow once", "Allow for this session" (the same tool and pattern stop asking in that session) and "Deny" (the turn ends). Change it freely: it is an ordinary extension ([extensions](extensions.md)).
 
-## Examples
+## Without writing code
 
-Rules are checked in order and the last match wins, so put broad rules first and exceptions after them:
+A `PreToolUse` [command hook](hooks.md) can refuse calls (exit 2, or `permissionDecision: "deny"`), or ask the user: `{"hookSpecificOutput": {"permissionDecision": "ask", "permissionDecisionReason": "Delete files?"}}` puts a yes/no question to the user, and anything but yes denies the call and ends the turn.
 
-```jsonc
-{
-  "permission": [
-    // Ask before any shell command, but let read-only git and the test suite run.
-    { "action": "bash", "pattern": "*", "effect": "ask" },
-    { "action": "bash", "pattern": "git status *", "effect": "allow" },
-    { "action": "bash", "pattern": "git diff *", "effect": "allow" },
-    { "action": "bash", "pattern": "zig build test *", "effect": "allow" },
-    // Never touch the environment files, wherever they are.
-    { "action": "read", "pattern": "*/.env", "effect": "deny" },
-    { "action": "edit", "pattern": "*/.env", "effect": "deny" },
-    { "action": "write", "pattern": "*/.env", "effect": "deny" },
-    // Only fetch from the docs site.
-    { "action": "webfetch", "pattern": "*", "effect": "deny" },
-    { "action": "webfetch", "pattern": "https://ziglang.org/*", "effect": "allow" },
-    // Tools from MCP servers and extensions use their tool name as the action.
-    { "action": "mcp__github__*", "pattern": "*", "effect": "ask" }
-  ]
-}
+```json
+{"hooks": {"PreToolUse": [{"matcher": "bash", "hooks": [{"type": "command",
+  "command": "grep -q '\"rm ' && echo '{\"hookSpecificOutput\":{\"permissionDecision\":\"ask\"}}' || true"}]}]}}
 ```
 
-Paths are canonical and absolute, so a project-relative file needs a leading `*/`. Put rules in the project's `.zeta/zeta.jsonc` to keep them with the project; arrays replace rather than merge, so a project `permission` list replaces the user's whole list.
+## Questions
 
-## Answering asks
-
-On a TTY, `zeta run` prompts for `allow_once`, `allow_session`, or `deny`. Noninteractive runs deny asks immediately. HTTP clients answer pending requests with `POST /permissions/:id/reply`, body `{"reply":"allow_once"}` (or `allow_session`/`deny`). Unanswered asks expire at the tool deadline, and an ask with no connected `/event` listener is denied at once; a denied tool ends the turn, and `zeta run` then exits with status 1. An `allow_session` reply only answers later asks for the same action and pattern in that session: rules are evaluated first, so a `deny` rule added afterwards still applies.
+Plugins ask four kinds of question: `confirm` (yes or no, with an optional `detail` such as the call), `select` (one of several `options`), `input` (a line of text, optionally `secret`) and `form` (a JSON Schema object of simple properties; MCP servers' questions are forms). The terminal client shows them above the editor; `zeta run` asks on its terminal and declines without one. An unanswered question declines when its time runs out, when no client is connected, or when the last one leaves; one that is no longer wanted (its call ended) is withdrawn. See [extensions](extensions.md#calls) for asking from an extension and [protocol](protocol.md) for the events and the reply route.

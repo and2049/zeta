@@ -47,7 +47,7 @@ pub fn build(a: Allocator, s: *Server, listed: []const Value) ![]const plugin.to
 }
 
 fn disabled(patterns: []const []const u8, name: []const u8) bool {
-    for (patterns) |pattern| if (core.permissions.glob(pattern, name)) return true;
+    for (patterns) |pattern| if (core.glob.match(pattern, name)) return true;
     return false;
 }
 

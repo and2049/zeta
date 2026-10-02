@@ -116,21 +116,8 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
         if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
         return command(s, c, seg[1]);
     }
-    if (seg.len == 3 and std.mem.eql(u8, seg[0], "permissions") and std.mem.eql(u8, seg[2], "reply")) {
-        if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");
-        return permissionReply(s, c, seg[1]);
-    }
-    if (seg.len == 1 and std.mem.eql(u8, seg[0], "elicitations")) return admin.elicitations(s, c);
-    if (seg.len == 3 and std.mem.eql(u8, seg[0], "elicitations") and std.mem.eql(u8, seg[2], "reply")) return admin.elicitationReply(s, c, seg[1]);
-}
-
-/// `{"reply":"allow_once"|"allow_session"|"deny"}`.
-fn permissionReply(s: *Server, c: *Ctx, id: []const u8) !void {
-    const body = try c.bodyJson(struct { reply: []const u8 });
-    const answer = std.meta.stringToEnum(core.permissions.Reply, body.reply) orelse
-        return c.fail(.bad_request, "invalid permission reply");
-    if (!s.runtime.replyPermission(id, answer)) return c.fail(.not_found, "permission request not pending");
-    try c.json(.ok, .{ .ok = true });
+    if (seg.len == 1 and std.mem.eql(u8, seg[0], "questions")) return admin.questions(s, c);
+    if (seg.len == 3 and std.mem.eql(u8, seg[0], "questions") and std.mem.eql(u8, seg[2], "reply")) return admin.questionReply(s, c, seg[1]);
 }
 
 /// `{"location": "/abs/dir", "profile":null, "model":null, "thinking":null}` → session info. The location is normalized to
@@ -204,7 +191,7 @@ fn events(s: *Server, c: *Ctx) !void {
     _ = s.event_listeners.fetchAdd(1, .acq_rel);
     defer {
         s.bus.unsubscribe(sub);
-        if (s.event_listeners.fetchSub(1, .acq_rel) == 1) s.runtime.disconnectPermissions();
+        if (s.event_listeners.fetchSub(1, .acq_rel) == 1) s.runtime.disconnectQuestions();
     }
 
     var buf: [8192]u8 = undefined;
@@ -268,7 +255,7 @@ fn events(s: *Server, c: *Ctx) !void {
 fn watchDisconnect(reader: *std.Io.Reader, io: std.Io, disconnected: *std.Io.Event) std.Io.Cancelable!void {
     // A GET /event has no request body. Any readable byte is an invalid
     // pipelined request; EOF is the usual client disconnect. Neither should
-    // keep an approval answerer registered.
+    // keep a question answerer registered.
     _ = reader.peek(1) catch |err| {
         if (err == error.Canceled) return error.Canceled;
         disconnected.set(io);

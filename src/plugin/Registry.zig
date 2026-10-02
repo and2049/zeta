@@ -192,7 +192,6 @@ pub fn addTool(r: *Registry, owner: Owner, new: tool_api.Tool) !void {
         .strict => try schema.check(parsed.value),
         .partial => if (parsed.value != .object) return error.InvalidSchema,
     }
-    try new.checkPermission(parsed.value);
     try r.add(tool_api.Tool, &r.tools, owner, new);
 }
 

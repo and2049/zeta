@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeOpenAI } from "./fake-openai";
 import { Sandbox, jsonEvents } from "./harness";
@@ -301,17 +301,14 @@ describe("mcp", () => {
     expect(found.tools[0].inputSchema.required).toEqual(["text"]);
     expect(llm.requests[2].messages.at(-1).content).toBe("deferred");
 
-    // Permission rules see the real tool.
-    sb.writeConfig({
-      model: "fake/test-model",
-      provider: { fake: { options: { baseURL: llm.baseURL } } },
-      permission: [{ action: "mcp__fake__echo", pattern: "*", effect: "deny" }],
-      mcp: { servers: { fake: { ...local, deferred: true } } },
-    });
-    llm.reply({ calls: [{ id: "d", name: "mcp_call", args: { name: "mcp__fake__echo", arguments: { text: "no" } } }] });
-    const denied = await sb.zeta(["run", "--json", "again"]);
-    const end = jsonEvents(denied.stdout).find((e) => e.type === "tool.execution.end");
-    expect(end?.data.result?.content[0].text).toBe("Tool execution denied by permission policy.");
+    // Hooks see the real tool.
+    mkdirSync(join(sb.project, ".zeta"), { recursive: true });
+    writeFileSync(join(sb.project, ".zeta", "hooks.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "mcp__fake__echo", hooks: [{ type: "command", command: "echo 'no echo' >&2; exit 2" }] }] } }));
+    expect((await sb.zeta(["reload"])).code).toBe(0);
+    llm.reply({ calls: [{ id: "d", name: "mcp_call", args: { name: "mcp__fake__echo", arguments: { text: "no" } } }] }, { text: "done" });
+    const blocked = await sb.zeta(["run", "--json", "again"]);
+    const end = jsonEvents(blocked.stdout).find((e) => e.type === "tool.execution.end");
+    expect(end?.data.result?.content[0].text).toBe("no echo");
   });
 
   test("turning deferred off and on again over reloads swaps the search tools", async () => {
@@ -337,7 +334,7 @@ describe("mcp", () => {
     config({ fake: { ...local, command: [process.execPath, fake, "--ask"] } });
     llm.reply({ calls: [{ id: "q", name: "mcp__fake__ask", args: {} }] }, { text: "done" });
     const run = await sb.zeta(["run", "ask me"]);
-    expect(run.stderr).toContain("mcp:fake asked: Which branch? (declined: zeta run cannot answer)");
+    expect(run.stderr).toContain("mcp:fake asked: Which branch? (declined: no terminal to answer on)");
     expect(JSON.parse(llm.requests[1].messages.at(-1).content)).toEqual({ action: "decline" });
 
     // A client that stays subscribed answers it.
@@ -346,12 +343,13 @@ describe("mcp", () => {
     const session = (await (await sb.api("/sessions", "POST", { location: sb.project })).json()).id;
     llm.reply({ calls: [{ id: "q2", name: "mcp__fake__ask", args: {} }] }, { text: "done" });
     await sb.api(`/sessions/${session}/prompt`, "POST", { text: "ask again" });
-    let open: Array<{ id: string; source: string; message: string; schema: { required: string[] } }> = [];
+    let open: Array<{ id: string; kind: string; source: string; message: string; schema: { required: string[] } }> = [];
     for (let i = 0; i < 200 && open.length === 0; i++) {
-      open = (await (await sb.api(`/elicitations?location=${encodeURIComponent(sb.project)}`)).json()).elicitations;
+      open = (await (await sb.api(`/questions?location=${encodeURIComponent(sb.project)}`)).json()).questions;
       await Bun.sleep(20);
     }
     expect(open[0].source).toBe("mcp:fake");
+    expect(open[0].kind).toBe("form");
     expect((open[0] as unknown as { session: string }).session).toBe(session);
     expect(open[0].schema.required).toEqual(["branch"]);
 
@@ -360,12 +358,12 @@ describe("mcp", () => {
     const other = await sb.zeta(["run", "something else"]);
     expect(other.code).toBe(0);
     expect(other.stderr).not.toContain("declined");
-    expect((await (await sb.api(`/elicitations?location=${encodeURIComponent(sb.project)}`)).json()).elicitations.length).toBe(1);
-    expect((await sb.api(`/elicitations/${open[0].id}/reply`, "POST", { action: "accept" })).status).toBe(400);
-    const misfit = await sb.api(`/elicitations/${open[0].id}/reply`, "POST", { action: "accept", content: { branch: 42 } });
+    expect((await (await sb.api(`/questions?location=${encodeURIComponent(sb.project)}`)).json()).questions.length).toBe(1);
+    expect((await sb.api(`/questions/${open[0].id}/reply`, "POST", { action: "accept" })).status).toBe(400);
+    const misfit = await sb.api(`/questions/${open[0].id}/reply`, "POST", { action: "accept", content: { branch: 42 } });
     expect(misfit.status).toBe(400);
     expect(await misfit.text()).toContain("branch");
-    expect((await sb.api(`/elicitations/${open[0].id}/reply`, "POST", { action: "accept", content: { branch: "main" } })).status).toBe(200);
+    expect((await sb.api(`/questions/${open[0].id}/reply`, "POST", { action: "accept", content: { branch: "main" } })).status).toBe(200);
     for (let i = 0; i < 200 && llm.requests.length < 5; i++) await Bun.sleep(20);
     expect(JSON.parse(llm.requests[4].messages.at(-1).content)).toEqual({ action: "accept", content: { branch: "main" } });
 
@@ -383,7 +381,7 @@ describe("mcp", () => {
     const { url, password } = sb.discovery();
     const events = await fetch(`${url}/event`, { headers: { authorization: `Basic ${btoa(`zeta:${password}`)}` } });
     const session = (await (await sb.api("/sessions", "POST", { location: sb.project })).json()).id;
-    const open = async () => (await (await sb.api(`/elicitations?location=${encodeURIComponent(sb.project)}`)).json()).elicitations;
+    const open = async () => (await (await sb.api(`/questions?location=${encodeURIComponent(sb.project)}`)).json()).questions;
     const waitFor = async (want: number) => {
       for (let i = 0; i < 200 && (await open()).length !== want; i++) await Bun.sleep(10);
       return open();

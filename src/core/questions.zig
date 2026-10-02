@@ -1,9 +1,10 @@
 //! Questions plugins ask the user (see `plugin.ask`). Each is published as
-//! `elicitation.requested` for its project and waits for
-//! `POST /elicitations/:id/reply`; `elicitation.resolved` follows. With no
+//! `question.asked` for its project and waits for
+//! `POST /questions/:id/reply`; `question.resolved` follows. With no
 //! event subscriber, when the last one leaves, or when time runs out, the
 //! answer is `decline`; a question the asker withdraws resolves as
-//! `cancel`. Events carry the asking session when it is known.
+//! `cancel`. Events carry the asking session when it is known. Notices
+//! are published as `plugin.notice` and need no answer.
 const std = @import("std");
 const proto = @import("proto");
 const plugin = @import("plugin");
@@ -11,7 +12,7 @@ const Bus = @import("bus.zig").Bus;
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Action = plugin.ask.Action;
-const formats = @import("elicitation_formats.zig");
+const formats = @import("question_formats.zig");
 
 pub const Asks = struct {
     gpa: Allocator,
@@ -30,14 +31,62 @@ pub const Asks = struct {
         expires_at: i64,
     };
 
+    /// A question as clients see it: the kind's name and its fields.
     pub const Info = struct {
         id: []const u8,
         session: ?[]const u8,
         source: []const u8,
         message: []const u8,
-        schema: std.json.Value,
+        kind: []const u8,
+        detail: ?[]const u8 = null,
+        options: ?[]const plugin.ask.Option = null,
+        placeholder: ?[]const u8 = null,
+        secret: ?bool = null,
+        schema: ?std.json.Value = null,
         expiresAt: i64,
+
+        /// Fields of other kinds are left out rather than written as null.
+        pub fn jsonStringify(self: Info, jw: anytype) !void {
+            try jw.beginObject();
+            inline for (@typeInfo(Info).@"struct".fields) |f| {
+                const value = @field(self, f.name);
+                const present = if (@typeInfo(f.type) == .optional) value != null else true;
+                if (present or comptime std.mem.eql(u8, f.name, "session")) {
+                    try jw.objectField(f.name);
+                    try jw.write(value);
+                }
+            }
+            try jw.endObject();
+        }
     };
+
+    /// `q` as clients see it, in `arena`; null for a form whose schema is
+    /// not JSON or a choice without options (those decline at once).
+    fn info(arena: Allocator, id: []const u8, q: plugin.ask.Question, expires_at: i64) !?Info {
+        var out: Info = .{
+            .id = try arena.dupe(u8, id),
+            .session = if (q.session) |v| try arena.dupe(u8, v) else null,
+            .source = try arena.dupe(u8, q.source),
+            .message = try arena.dupe(u8, q.message),
+            .kind = @tagName(q.kind),
+            .expiresAt = expires_at,
+        };
+        switch (q.kind) {
+            .confirm => |c| out.detail = if (c.detail) |v| try arena.dupe(u8, v) else null,
+            .select => |c| {
+                if (c.options.len == 0) return null;
+                const options = try arena.alloc(plugin.ask.Option, c.options.len);
+                for (c.options, options) |o, *d| d.* = .{ .value = try arena.dupe(u8, o.value), .label = try arena.dupe(u8, o.label), .description = try arena.dupe(u8, o.description) };
+                out.options = options;
+            },
+            .input => |c| {
+                out.placeholder = if (c.placeholder) |v| try arena.dupe(u8, v) else null;
+                out.secret = c.secret;
+            },
+            .form => |c| out.schema = std.json.parseFromSliceLeaky(std.json.Value, arena, c.schema, .{ .allocate = .alloc_always }) catch return null,
+        }
+        return out;
+    }
 
     pub fn init(gpa: Allocator, io: Io, bus: *Bus, ids: *proto.id.Generator) Asks {
         return .{ .gpa = gpa, .io = io, .bus = bus, .ids = ids };
@@ -50,7 +99,16 @@ pub const Asks = struct {
     }
 
     pub fn asker(a: *Asks) plugin.ask.Asker {
-        return .{ .ctx = a, .ask = askFn };
+        return .{ .ctx = a, .ask = askFn, .notify = notifyFn };
+    }
+
+    fn notifyFn(ctx: ?*anyopaque, n: plugin.ask.Notice) anyerror!void {
+        const a: *Asks = @ptrCast(@alignCast(ctx.?));
+        return a.notify(n);
+    }
+
+    pub fn notify(a: *Asks, n: plugin.ask.Notice) !void {
+        try a.bus.publishValue(proto.event.types.plugin_notice, n.session, n.location, .{ .source = n.source, .message = n.message, .level = @tagName(n.level) });
     }
 
     fn askFn(ctx: ?*anyopaque, arena: Allocator, io: Io, q: plugin.ask.Question) anyerror!plugin.ask.Answer {
@@ -60,12 +118,12 @@ pub const Asks = struct {
     }
 
     pub fn ask(a: *Asks, arena: Allocator, q: plugin.ask.Question) !plugin.ask.Answer {
-        const schema = std.json.parseFromSliceLeaky(std.json.Value, arena, q.schema, .{}) catch return .{ .action = .decline };
-        const id = a.ids.next(a.io, .elicitation);
+        const id = a.ids.next(a.io, .question);
         const key = try a.gpa.dupe(u8, id.slice());
         defer a.gpa.free(key);
         const ms: i64 = @intCast(@min(q.timeout_ms, std.math.maxInt(i64)));
         var pending: Pending = .{ .question = q, .expires_at = Io.Clock.real.now(a.io).toMilliseconds() +| ms };
+        const shown = try info(arena, key, q, pending.expires_at) orelse return .{ .action = .decline };
         a.mutex.lockUncancelable(a.io);
         a.pending.put(a.gpa, key, &pending) catch |err| {
             a.mutex.unlock(a.io);
@@ -78,16 +136,9 @@ pub const Asks = struct {
             const content = pending.content;
             a.mutex.unlock(a.io);
             if (content) |c| a.gpa.free(c);
-            a.bus.publishValue(proto.event.types.elicitation_resolved, q.session, q.location, .{ .id = key, .action = @tagName(pending.action) }) catch {};
+            a.bus.publishValue(proto.event.types.question_resolved, q.session, q.location, .{ .id = key, .action = @tagName(pending.action) }) catch {};
         }
-        try a.bus.publishValue(proto.event.types.elicitation_requested, q.session, q.location, .{
-            .id = key,
-            .session = q.session,
-            .source = q.source,
-            .message = q.message,
-            .schema = schema,
-            .expiresAt = pending.expires_at,
-        });
+        try a.bus.publishValue(proto.event.types.question_asked, q.session, q.location, shown);
         // Checked after publishing: a listener leaving later reaches this
         // question through `disconnect`.
         if (!a.bus.hasSubscribers()) return .{ .action = .decline };
@@ -127,17 +178,17 @@ pub const Asks = struct {
 
     /// False for an unknown or already answered question.
     /// `error.InvalidContent` (the question stays open) when `accept`'s
-    /// `content` (JSON text) does not fit the question's schema; `problem`
-    /// then says why, in `arena`.
+    /// `content` (JSON text) does not fit the question (see
+    /// `plugin.ask.Kind`); `problem` then says why, in `arena`.
     pub fn reply(a: *Asks, arena: Allocator, id: []const u8, action: Action, content: ?[]const u8, problem: *[]const u8) !bool {
-        const copy = if (action == .accept) try a.gpa.dupe(u8, content orelse "{}") else null;
+        const copy = if (action == .accept) try a.gpa.dupe(u8, content orelse "null") else null;
         a.mutex.lockUncancelable(a.io);
         defer a.mutex.unlock(a.io);
         const p = a.pending.get(id) orelse {
             if (copy) |c| a.gpa.free(c);
             return false;
         };
-        if (copy) |c| if (try misfit(arena, p.question.schema, c)) |why| {
+        if (copy) |c| if (try misfit(arena, p.question.kind, c)) |why| {
             a.gpa.free(c);
             problem.* = why;
             return error.InvalidContent;
@@ -152,10 +203,21 @@ pub const Asks = struct {
         return true;
     }
 
-    /// Why `content` does not fit `schema`, or null when it does.
-    fn misfit(arena: Allocator, schema: []const u8, content: []const u8) !?[]const u8 {
-        const shape = std.json.parseFromSliceLeaky(std.json.Value, arena, schema, .{}) catch return null;
+    /// Why `content` does not answer a question of `kind`, or null when it
+    /// does.
+    fn misfit(arena: Allocator, kind: plugin.ask.Kind, content: []const u8) !?[]const u8 {
         const value = std.json.parseFromSliceLeaky(std.json.Value, arena, content, .{}) catch return "content is not JSON";
+        const schema = switch (kind) {
+            .confirm => return null,
+            .input => return if (value == .string) null else "content must be a string",
+            .select => |c| {
+                if (value != .string) return "content must be a string";
+                for (c.options) |o| if (std.mem.eql(u8, o.value, value.string)) return null;
+                return "content is not one of the options";
+            },
+            .form => |c| c.schema,
+        };
+        const shape = std.json.parseFromSliceLeaky(std.json.Value, arena, schema, .{}) catch return null;
         if (value != .object) return "content must be an object";
         const issues = try @import("schema.zig").validate(arena, shape, value);
         if (issues.len > 0) {
@@ -184,14 +246,7 @@ pub const Asks = struct {
         while (it.next()) |entry| {
             const p = entry.value_ptr.*;
             if (p.event.isSet() or !std.mem.eql(u8, p.question.location, location)) continue;
-            try out.append(arena, .{
-                .id = try arena.dupe(u8, entry.key_ptr.*),
-                .session = if (p.question.session) |s| try arena.dupe(u8, s) else null,
-                .source = try arena.dupe(u8, p.question.source),
-                .message = try arena.dupe(u8, p.question.message),
-                .schema = try std.json.parseFromSliceLeaky(std.json.Value, arena, p.question.schema, .{ .allocate = .alloc_always }),
-                .expiresAt = p.expires_at,
-            });
+            if (try info(arena, entry.key_ptr.*, p.question, p.expires_at)) |shown| try out.append(arena, shown);
         }
         return out.items;
     }
@@ -212,12 +267,29 @@ test "answers must fit the form's formats" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const schema = "{\"type\":\"object\",\"properties\":{\"mail\":{\"type\":\"string\",\"format\":\"email\"},\"day\":{\"type\":\"string\",\"format\":\"date\"}}}";
+    const schema: plugin.ask.Kind = .{ .form = .{ .schema = "{\"type\":\"object\",\"properties\":{\"mail\":{\"type\":\"string\",\"format\":\"email\"},\"day\":{\"type\":\"string\",\"format\":\"date\"}}}" } };
     try std.testing.expect(try Asks.misfit(a, schema, "{\"mail\":\"a@b.c\",\"day\":\"2026-09-29\"}") == null);
     try std.testing.expectEqualStrings("mail: not a valid email", (try Asks.misfit(a, schema, "{\"mail\":\"nope\"}")).?);
     try std.testing.expectEqualStrings("day: not a valid date", (try Asks.misfit(a, schema, "{\"day\":\"29/09\"}")).?);
     try std.testing.expect(try Asks.misfit(a, schema, "{\"day\":\"2026-02-30\"}") != null);
     try std.testing.expect(try Asks.misfit(a, schema, "{\"mail\":\"a@@b.c\"}") != null);
+}
+
+test "answers must fit the kind of question" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const pick: plugin.ask.Kind = .{ .select = .{ .options = &.{ .{ .value = "once" }, .{ .value = "always" } } } };
+    try std.testing.expect(try Asks.misfit(a, pick, "\"once\"") == null);
+    try std.testing.expectEqualStrings("content is not one of the options", (try Asks.misfit(a, pick, "\"never\"")).?);
+    try std.testing.expect(try Asks.misfit(a, pick, "1") != null);
+    const line: plugin.ask.Kind = .{ .input = .{} };
+    try std.testing.expect(try Asks.misfit(a, line, "\"text\"") == null);
+    try std.testing.expect(try Asks.misfit(a, line, "{}") != null);
+    try std.testing.expect(try Asks.misfit(a, .{ .confirm = .{} }, "null") == null);
+    // A choice without options cannot be shown.
+    const empty: plugin.ask.Question = .{ .location = "/p", .source = "t", .message = "?", .kind = .{ .select = .{ .options = &.{} } }, .timeout_ms = 1 };
+    try std.testing.expect(try Asks.info(a, "que_1", empty, 0) == null);
 }
 
 test "an answer reaches the asker; without listeners it declines" {
@@ -230,7 +302,7 @@ test "an answer reaches the asker; without listeners it declines" {
     defer asks.deinit();
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
-    const q: plugin.ask.Question = .{ .location = "/p", .source = "mcp:docs", .message = "Which branch?", .schema = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}}}", .timeout_ms = 5000 };
+    const q: plugin.ask.Question = .{ .location = "/p", .source = "mcp:docs", .message = "Which branch?", .kind = .{ .form = .{ .schema = "{\"type\":\"object\",\"properties\":{\"branch\":{\"type\":\"string\"}}}" } }, .timeout_ms = 5000 };
     try std.testing.expectEqual(plugin.ask.Action.decline, (try asks.ask(arena.allocator(), q)).action);
 
     const sub = try bus.subscribe();
@@ -243,7 +315,7 @@ test "an answer reaches the asker; without listeners it declines" {
                 var scratch: std.heap.ArenaAllocator = .init(std.testing.allocator);
                 defer scratch.deinit();
                 const event = proto.event.Decoded.parse(scratch.allocator(), frame.bytes) catch return;
-                if (!std.mem.eql(u8, event.type, proto.event.types.elicitation_requested)) continue;
+                if (!std.mem.eql(u8, event.type, proto.event.types.question_asked)) continue;
                 const id = event.data.object.get("id").?.string;
                 std.debug.assert((a.list(scratch.allocator(), "/p") catch unreachable).len == 1);
                 var why: []const u8 = "";
@@ -295,7 +367,7 @@ test "a question declines when time runs out or the last listener leaves, and ca
     const sub = try bus.subscribe();
     var subscribed = true;
     defer if (subscribed) bus.unsubscribe(sub);
-    const base: plugin.ask.Question = .{ .location = "/p", .source = "mcp:docs", .message = "?", .schema = "{}", .timeout_ms = 20, .session = "ses_1" };
+    const base: plugin.ask.Question = .{ .location = "/p", .source = "mcp:docs", .message = "?", .kind = .{ .confirm = .{} }, .timeout_ms = 20, .session = "ses_1" };
     try std.testing.expectEqual(Action.decline, (try asks.ask(arena.allocator(), base)).action);
 
     var withdrawn: Io.Event = .unset;

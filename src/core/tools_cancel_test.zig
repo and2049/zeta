@@ -16,7 +16,7 @@ fn slow(_: ?*anyopaque, arena: Allocator, io: Io, _: []const u8, _: std.json.Val
 const Run = struct {
     batch: tools_mod.Batch = undefined,
     fn go(r: *Run, arena: Allocator, io: Io, bus: *Bus, tools: []const plugin.tool.Tool, calls: []const Call) Io.Cancelable!void {
-        r.batch = tools_mod.execute(arena, std.testing.allocator, io, bus, "s", "/p", tools, calls, false, null, null, .{}, null) catch |err| .{ .outcomes = &.{}, .failure = err };
+        r.batch = tools_mod.execute(arena, std.testing.allocator, io, bus, "s", "/p", tools, calls, false, null, .{}, null) catch |err| .{ .outcomes = &.{}, .failure = err };
     }
 };
 
@@ -87,7 +87,7 @@ test "an abort is not lost while a waited-for tool's large result is saved" {
     const Big = struct {
         batch: tools_mod.Batch = undefined,
         fn go(r: *@This(), a: Allocator, t_io: Io, b: *Bus, ts: []const plugin.tool.Tool, cs: []const Call, artifacts: []const u8) Io.Cancelable!void {
-            r.batch = tools_mod.execute(a, std.testing.allocator, t_io, b, "s", "/p", ts, cs, false, null, null, .{}, artifacts) catch |err| .{ .outcomes = &.{}, .failure = err };
+            r.batch = tools_mod.execute(a, std.testing.allocator, t_io, b, "s", "/p", ts, cs, false, null, .{}, artifacts) catch |err| .{ .outcomes = &.{}, .failure = err };
         }
     };
     var run: Big = .{};
@@ -110,7 +110,7 @@ test "an abort that waits for a tool also waits for its result hooks" {
         batch: tools_mod.Batch = undefined,
         fn go(r: *@This(), arena: Allocator, t_io: Io, b: *Bus, ts: []const plugin.tool.Tool, cs: []const Call) Io.Cancelable!void {
             const hooks: @import("hooks.zig").Hooks = .{ .list = &.{.{ .plugin = "t", .value = .{ .point = .{ .tool_post = post } } }} };
-            r.batch = tools_mod.execute(arena, std.testing.allocator, t_io, b, "s", "/p", ts, cs, false, null, null, hooks, null) catch |err| .{ .outcomes = &.{}, .failure = err };
+            r.batch = tools_mod.execute(arena, std.testing.allocator, t_io, b, "s", "/p", ts, cs, false, null, hooks, null) catch |err| .{ .outcomes = &.{}, .failure = err };
         }
     };
     const tools: []const plugin.tool.Tool = &.{.{ .name = "careful", .description = "", .input_schema = "{}", .cancellable = false, .execute = slow }};

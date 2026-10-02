@@ -6,7 +6,7 @@ The few ideas the rest of these pages build on, and a map of where each thing li
 
 - **Server.** One long-lived process per user (`zeta serve`, or started on demand by any client) owns everything: sessions, plugins, credentials, model calls and tools. It listens on localhost and writes a discovery file (`$XDG_RUNTIME_DIR/zeta/server.json`) with its URL and password. `zeta --standalone` and `zeta run --standalone` start a private server instead.
 - **Clients.** The full-screen terminal client, `zeta run`, the other CLI commands and any script are clients of the same [HTTP API and event stream](protocol.md). Clients hold no agent logic; two clients on one session see the same thing.
-- **Project (location).** The nearest enclosing git root of a directory, or the directory itself. Sessions, project config, project plugins and permissions are all per project. HTTP routes take it as `location=<absolute path>` or derive it from `session=<id>`.
+- **Project (location).** The nearest enclosing git root of a directory, or the directory itself. Sessions, project config and project plugins are all per project. HTTP routes take it as `location=<absolute path>` or derive it from `session=<id>`.
 - **Session.** A conversation in one project, stored as an append-only JSONL log. A session pins its model and thinking level on its first run. See [sessions](sessions.md).
 - **Run and turn.** A run starts when a prompt leaves the session's inbox and ends when the agent stops; each model request and the tool calls it makes form a turn. Inputs wait in the inbox and are delivered one at a time.
 - **Plugins.** Every capability is a plugin in one registry: each built-in tool, each provider, each wire API (OpenAI Chat Completions, Codex Responses, Anthropic Messages), the skills loader, each `hooks.json` file, each MCP server and each extension. `GET /registry` lists them with what each one provides.
@@ -19,7 +19,7 @@ zeta changes its own behavior through files, never through its source or binary:
 
 | To change | Edit | Takes effect |
 |---|---|---|
-| settings, model, providers, permissions | `zeta.jsonc` ([configuration](configuration.md)) | next run |
+| settings, model, providers, plugin settings | `zeta.jsonc` ([configuration](configuration.md)) | next run |
 | standing instructions | `AGENTS.md` ([skills](skills.md)) | next run |
 | on-demand know-how | `skills/<name>/SKILL.md` ([skills](skills.md)) | next run |
 | slash commands that expand to a prompt | `prompts/<name>.md` ([prompt templates](commands.md)) | immediately |

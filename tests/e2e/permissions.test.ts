@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FakeOpenAI } from "./fake-openai";
 import { Sandbox, type AgentEvent } from "./harness";
 
-type PermissionEvent = AgentEvent & { data: AgentEvent["data"] & { id: string; action: string; pattern: string; timeoutMs: number } };
+// zeta asks nothing itself: these tests drive the example permissions
+// extension, which asks through the generic question API.
+type QuestionEvent = AgentEvent & { data: AgentEvent["data"] & { id: string; kind: string; message: string; source: string; options: Array<{ value: string; label: string }> } };
+
+const example = join(import.meta.dir, "../../docs/examples/extensions/permissions");
 
 class Feed {
   private reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -18,7 +22,7 @@ class Feed {
     const { url, password } = sb.discovery();
     const response = await fetch(`${url}/event`, {
       headers: { authorization: `Basic ${btoa(`zeta:${password}`)}` },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(20_000),
     });
     expect(response.status).toBe(200);
     const feed = new Feed(response.body!.getReader());
@@ -56,40 +60,35 @@ let sb: Sandbox;
 let llm: FakeOpenAI;
 let feed: Feed | undefined;
 
-async function post(path: string, body: object): Promise<Response> {
-  const { url, password } = sb.discovery();
-  return fetch(`${url}${path}`, {
-    method: "POST",
-    headers: { authorization: `Basic ${btoa(`zeta:${password}`)}`, "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
 async function newSession(): Promise<string> {
-  const response = await post("/sessions", { location: sb.project });
+  const response = await sb.api("/sessions", "POST", { location: sb.project });
   expect(response.status).toBe(200);
   return ((await response.json()) as { id: string }).id;
 }
 
 async function prompt(session: string) {
-  const response = await post(`/sessions/${session}/prompt`, { text: "write a file" });
-  expect(response.status).toBe(200);
+  expect((await sb.api(`/sessions/${session}/prompt`, "POST", { text: "write a file" })).status).toBe(200);
 }
 
-async function answer(id: string, reply: "allow_once" | "allow_session" | "deny") {
-  return post(`/permissions/${id}/reply`, { reply });
+function reply(id: string, action: string, content?: unknown) {
+  return sb.api(`/questions/${id}/reply`, "POST", content === undefined ? { action } : { action, content });
 }
 
-async function bootstrap(timeout_ms = 500) {
+async function bootstrap(settings: object = { rules: [{ tool: "write", pattern: "*", effect: "ask" }] }) {
+  mkdirSync(join(sb.project, ".zeta", "extensions"), { recursive: true });
+  cpSync(example, join(sb.project, ".zeta", "extensions", "permissions"), { recursive: true });
   sb.writeConfig({
     model: "fake/test-model",
     provider: { fake: { options: { baseURL: llm.baseURL } } },
-    tool_timeout_ms: timeout_ms,
-    permission: [{ action: "write", pattern: "*", effect: "ask" }],
+    plugin: { permissions: settings },
   });
   llm.reply({ text: "ready" });
   expect((await sb.zeta(["run", "start server"])).code).toBe(0);
   feed = await Feed.open(sb);
+}
+
+function toolResults() {
+  return llm.requests.at(-1).messages.filter((message: { role: string }) => message.role === "tool");
 }
 
 beforeEach(() => {
@@ -103,9 +102,9 @@ afterEach(async () => {
   llm.stop();
 });
 
-describe("permission replies over the API and SSE", () => {
-  test("allow_once approves one call and asks again for the next call", async () => {
-    await bootstrap(5_000);
+describe("questions from the example permissions extension", () => {
+  test("a rule that asks puts a choice to the user; 'once' runs the call and asks again next time", async () => {
+    await bootstrap();
     const session = await newSession();
     llm.reply(
       { calls: [{ id: "once-1", name: "write", args: { path: "once.txt", content: "first" } }] },
@@ -113,21 +112,27 @@ describe("permission replies over the API and SSE", () => {
       { text: "done" },
     );
     await prompt(session);
-    const first = await feed!.until("permission.asked", session) as PermissionEvent;
-    expect(first.data.action).toBe("write");
-    expect(first.data.pattern).toContain("once.txt");
-    expect((await answer(first.data.id, "allow_once")).status).toBe(200);
-    expect((await answer(first.data.id, "allow_once")).status).toBe(404);
-    const second = await feed!.until("permission.asked", session) as PermissionEvent;
+    const first = await feed!.until("question.asked", session) as QuestionEvent;
+    expect(first.data.kind).toBe("select");
+    expect(first.data.source).toBe("permissions");
+    expect(first.data.message).toContain(join(sb.project, "once.txt"));
+    expect(first.data.options.map((o) => o.value)).toEqual(["once", "session", "deny"]);
+    const listed = (await (await sb.api(`/questions?location=${encodeURIComponent(sb.project)}`)).json()).questions;
+    expect(listed.map((q: { id: string }) => q.id)).toEqual([first.data.id]);
+    // An answer that is not one of the options is refused and the question stays open.
+    expect((await reply(first.data.id, "accept", "sometimes")).status).toBe(400);
+    expect((await reply(first.data.id, "accept", "once")).status).toBe(200);
+    expect((await reply(first.data.id, "accept", "once")).status).toBe(404);
+    const second = await feed!.until("question.asked", session) as QuestionEvent;
     expect(second.data.id).not.toBe(first.data.id);
-    expect((await answer(second.data.id, "allow_once")).status).toBe(200);
+    expect((await reply(second.data.id, "accept", "once")).status).toBe(200);
     await feed!.until("agent.end", session);
-    expect(existsSync(join(sb.project, "once.txt"))).toBe(true);
-    expect(llm.requests.at(-1).messages.filter((message: { role: string }) => message.role === "tool")).toHaveLength(2);
+    expect(readFileSync(join(sb.project, "once.txt"), "utf8")).toBe("second");
+    expect(toolResults()).toHaveLength(2);
   });
 
-  test("allow_session remembers a matching action/path for the same session", async () => {
-    await bootstrap(5_000);
+  test("'for this session' stops asking about the same call", async () => {
+    await bootstrap();
     const session = await newSession();
     llm.reply(
       { calls: [{ id: "session-1", name: "write", args: { path: "session.txt", content: "one" } }] },
@@ -135,8 +140,8 @@ describe("permission replies over the API and SSE", () => {
       { text: "done" },
     );
     await prompt(session);
-    const asked = await feed!.until("permission.asked", session) as PermissionEvent;
-    expect((await answer(asked.data.id, "allow_session")).status).toBe(200);
+    const asked = await feed!.until("question.asked", session) as QuestionEvent;
+    expect((await reply(asked.data.id, "accept", "session")).status).toBe(200);
     const observed: string[] = [];
     while (true) {
       const event = await feed!.next();
@@ -144,28 +149,62 @@ describe("permission replies over the API and SSE", () => {
       observed.push(event.type);
       if (event.type === "agent.end") break;
     }
-    expect(observed).not.toContain("permission.asked");
+    expect(observed).not.toContain("question.asked");
     expect(observed.filter((type) => type === "tool.execution.end")).toHaveLength(2);
-    expect(llm.requests.at(-1).messages.filter((message: { role: string }) => message.role === "tool")).toHaveLength(2);
   });
 
-  test("unanswered ask expires, denies execution and rejects a late reply", async () => {
-    await bootstrap(80);
+  test("denying ends the turn with the reason as the call's result", async () => {
+    await bootstrap();
     const session = await newSession();
-    llm.reply({ calls: [{ id: "expires", name: "write", args: { path: "expired.txt", content: "no" } }] });
+    llm.reply({ calls: [{ id: "denied", name: "write", args: { path: "denied.txt", content: "no" } }] });
     await prompt(session);
-    const asked = await feed!.until("permission.asked", session) as PermissionEvent;
-    expect(asked.data.timeoutMs).toBe(80);
+    const asked = await feed!.until("question.asked", session) as QuestionEvent;
+    expect((await reply(asked.data.id, "accept", "deny")).status).toBe(200);
     const ended = await feed!.until("tool.execution.end", session);
     expect(ended.data.isError).toBe(true);
+    expect(ended.data.result.content[0].text).toBe("The user denied this write call.");
     await feed!.until("agent.end", session);
-    expect((await answer(asked.data.id, "allow_once")).status).toBe(404);
-    expect(existsSync(join(sb.project, "expired.txt"))).toBe(false);
+    expect(existsSync(join(sb.project, "denied.txt"))).toBe(false);
     expect(llm.requests).toHaveLength(2); // bootstrap plus the one denied turn
   });
 
-  test("an ask with no SSE listener denies at once instead of waiting for its deadline", async () => {
-    await bootstrap(10_000);
+  test("reading outside the project asks; a rule can deny without asking", async () => {
+    const outside = join(sb.root, "outside.txt");
+    writeFileSync(outside, "secret");
+    await bootstrap({ rules: [{ tool: "write", pattern: "*/.env", effect: "deny" }] });
+    const session = await newSession();
+    llm.reply(
+      { calls: [{ id: "far", name: "read", args: { path: outside } }] },
+      { calls: [{ id: "env", name: "write", args: { path: ".env", content: "X=1" } }] },
+      { text: "done" },
+    );
+    await prompt(session);
+    const asked = await feed!.until("question.asked", session) as QuestionEvent;
+    expect(asked.data.message).toBe(`Allow read outside the project: ${outside}`);
+    expect((await reply(asked.data.id, "accept", "once")).status).toBe(200);
+    const read = await feed!.until("tool.execution.end", session);
+    expect(read.data.result.content[0].text).toContain("secret");
+    const write = await feed!.until("tool.execution.end", session);
+    expect(write.data.result.content[0].text).toBe("A permission rule denies this write call.");
+    await feed!.until("agent.end", session);
+    expect(existsSync(join(sb.project, ".env"))).toBe(false);
+  });
+
+  test("aborting the turn withdraws its open question", async () => {
+    await bootstrap();
+    const session = await newSession();
+    llm.reply({ calls: [{ id: "pending", name: "write", args: { path: "unapproved.txt", content: "no" } }] });
+    await prompt(session);
+    const asked = await feed!.until("question.asked", session) as QuestionEvent;
+    expect((await sb.api(`/sessions/${session}/abort`, "POST", {})).status).toBe(200);
+    const resolved = await feed!.until("question.resolved", session);
+    expect(resolved.data).toEqual({ id: asked.data.id, action: "cancel" });
+    expect((await reply(asked.data.id, "accept", "once")).status).toBe(404);
+    expect(existsSync(join(sb.project, "unapproved.txt"))).toBe(false);
+  });
+
+  test("with no SSE listener a question declines at once, and the call is denied", async () => {
+    await bootstrap();
     await feed!.close();
     feed = undefined;
     const session = await newSession();
@@ -182,19 +221,18 @@ describe("permission replies over the API and SSE", () => {
     expect(existsSync(join(sb.project, "unattended.txt"))).toBe(false);
   }, 15_000);
 
-  test("disconnecting the last SSE listener denies a pending ask before its deadline", async () => {
-    await bootstrap(5_000);
+  test("disconnecting the last SSE listener declines an open question", async () => {
+    await bootstrap();
     const session = await newSession();
     llm.reply({ calls: [{ id: "disconnect", name: "write", args: { path: "disconnected.txt", content: "no" } }] });
     await prompt(session);
-    const asked = await feed!.until("permission.asked", session) as PermissionEvent;
+    const asked = await feed!.until("question.asked", session) as QuestionEvent;
     await feed!.close();
     feed = undefined;
-    // The only observer has disconnected, so no SSE event can report the
-    // decision. Poll the persisted session log, well before the 5s deadline.
+    // No SSE listener remains to report the outcome: poll the session log.
     const dir = join(sb.env.XDG_DATA_HOME, "zeta", "sessions");
     let denied = false;
-    for (let attempt = 0; attempt < 30 && !denied; attempt++) {
+    for (let attempt = 0; attempt < 100 && !denied; attempt++) {
       const file = readdirSync(dir, { recursive: true }).find((name) => String(name).endsWith(`${session}.jsonl`));
       if (file) {
         const log = readFileSync(join(dir, String(file)), "utf8");
@@ -203,7 +241,7 @@ describe("permission replies over the API and SSE", () => {
       if (!denied) await Bun.sleep(20);
     }
     expect(denied).toBe(true);
-    expect((await answer(asked.data.id, "allow_once")).status).toBe(404);
+    expect((await reply(asked.data.id, "accept", "once")).status).toBe(404);
     expect(existsSync(join(sb.project, "disconnected.txt"))).toBe(false);
   });
 });

@@ -7,10 +7,15 @@ const max_key = 64 * 1024;
 /// Returns an allocated single line without LF/CRLF; caller must overwrite
 /// the bytes before freeing. Does not consume a second line from a pipe.
 pub fn readSecret(allocator: std.mem.Allocator, io: Io) ![]u8 {
-    return readSecretFrom(allocator, io, Io.File.stdin(), Io.File.stderr());
+    return readSecretFrom(allocator, io, Io.File.stdin(), Io.File.stderr(), "API key: ");
 }
 
-fn readSecretFrom(allocator: std.mem.Allocator, io: Io, input: Io.File, prompt_file: Io.File) ![]u8 {
+/// `readSecret` with another prompt on a terminal.
+pub fn readSecretPrompt(allocator: std.mem.Allocator, io: Io, prompt: []const u8) ![]u8 {
+    return readSecretFrom(allocator, io, Io.File.stdin(), Io.File.stderr(), prompt);
+}
+
+fn readSecretFrom(allocator: std.mem.Allocator, io: Io, input: Io.File, prompt_file: Io.File, prompt: []const u8) ![]u8 {
     const tty = try input.isTty(io);
     if (tty) {
         const original = try std.posix.tcgetattr(input.handle);
@@ -24,7 +29,7 @@ fn readSecretFrom(allocator: std.mem.Allocator, io: Io, input: Io.File, prompt_f
         hidden.cc[@intFromEnum(std.posix.V.TIME)] = 0;
         try std.posix.tcsetattr(input.handle, .FLUSH, hidden);
         defer std.posix.tcsetattr(input.handle, .FLUSH, original) catch {};
-        try prompt_file.writeStreamingAll(io, "API key: ");
+        try prompt_file.writeStreamingAll(io, prompt);
         defer prompt_file.writeStreamingAll(io, "\n") catch {};
         return readLine(allocator, io, input, true);
     }
@@ -72,7 +77,7 @@ test "pipe input consumes exactly one line" {
     defer input.close(io);
     try output.writeStreamingAll(io, "secret\r\nsecond\n");
     output.close(io);
-    const secret = try readSecretFrom(std.testing.allocator, io, input, Io.File.stderr());
+    const secret = try readSecretFrom(std.testing.allocator, io, input, Io.File.stderr(), "API key: ");
     defer std.testing.allocator.free(secret);
     try std.testing.expectEqualStrings("secret", secret);
 }

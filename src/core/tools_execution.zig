@@ -1,4 +1,4 @@
-//! Performs a tool call through validation, hooks, approval, and timed execution.
+//! Performs a tool call through validation, hooks, and timed execution.
 const std = @import("std");
 const plugin = @import("plugin");
 const schema = @import("schema.zig");
@@ -31,37 +31,18 @@ pub fn perform(t: *Task) !void {
         return;
     }
     if (found.dispatch) {
-        // From here on the call is the deferred tool's: its schema,
-        // hooks and permissions.
+        // From here on the call is the deferred tool's: its schema and
+        // hooks.
         found = try dispatch.resolve(t, &parsed, &shape) orelse return;
     }
     const pre = try t.hooks.toolPre(a, t.io, .{ .id = t.call.id, .name = found.name, .args = parsed });
     if (pre.blocked) |reason| {
         t.text = reason;
+        t.denied = pre.denied;
         return;
     }
-    var args = pre.args;
+    const args = pre.args;
     if (pre.rewritten and !try revalidate(t, shape, args)) return;
-    if (t.approval) |gate| {
-        const verdict = timed.approve(t, gate, found, &args) catch |err| {
-            if (err == error.Canceled) return err;
-            t.denied = true;
-            t.text = try std.fmt.allocPrint(a, "Tool '{s}' denied: {s}", .{ found.name, @errorName(err) });
-            return;
-        };
-        switch (verdict) {
-            .allow => if (!try revalidate(t, shape, args)) return,
-            .deny => {
-                t.denied = true;
-                t.text = "Tool execution denied by permission policy.";
-                return;
-            },
-            .block => |reason| {
-                t.text = reason;
-                return;
-            },
-        }
-    }
     // A tool that must not be interrupted runs to its end (or its
     // deadline) and its result is recorded; an abort takes effect after.
     if (!found.cancellable) t.shielded = t.io.swapCancelProtection(.blocked);
@@ -70,14 +51,8 @@ pub fn perform(t: *Task) !void {
     defer timed.settle(t);
     const result = timed.execute(t, found, args) catch |err| blk: {
         if (err == error.Canceled) return err;
-        if (t.denied) break :blk plugin.tool.Result{ .text = "", .isError = true };
         break :blk plugin.tool.Result{ .text = try std.fmt.allocPrint(a, "Tool '{s}' failed: {s}", .{ found.name, @errorName(err) }), .isError = true };
     };
-    // A mid-call denial (see `permit`) ends the call like an upfront one.
-    if (t.denied) {
-        t.text = "Tool execution denied by permission policy.";
-        return;
-    }
     // Under the shield the result hooks run too (within the deadline),
     // so the model never gets a result they did not see.
     const final = if (t.shielded != null) try timed.post(t, found, args, result) else try t.hooks.toolPost(a, t.io, .{ .id = t.call.id, .name = found.name, .args = args }, result);

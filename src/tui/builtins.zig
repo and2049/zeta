@@ -7,6 +7,7 @@ pub const plugins = [_]plugin.Plugin{
     @import("plugins/bars.zig").plugin_entry,
     @import("plugins/tools.zig").plugin_entry,
     @import("plugins/welcome.zig").plugin_entry,
+    @import("plugins/questions.zig").plugin_entry,
 };
 
 test {
@@ -16,4 +17,5 @@ test {
     _ = @import("plugins/bars.zig");
     _ = @import("plugins/tools.zig");
     _ = @import("plugins/welcome.zig");
+    _ = @import("plugins/questions.zig");
 }

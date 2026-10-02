@@ -35,7 +35,8 @@ pub const Config = struct {
     /// Frozen executable snapshot; the composition root derives matching
     /// provider declarations in `tools` from this same snapshot.
     executable_tools: []const plugin.tool.Tool = &.{},
-    approval: ?tools.Approval = null,
+    /// What hooks ask the user through.
+    asker: plugin.ask.Asker = .none,
     tool_timeout_ms: ?u64 = null,
     retry: Retry = .{},
     /// From the run's registry view, in load order.
@@ -102,6 +103,7 @@ pub const Loop = struct {
             .location = l.session.info.location,
             .provider = l.config.provider_id,
             .model = l.config.model_id,
+            .asker = l.config.asker,
         } };
     }
 
@@ -155,7 +157,7 @@ pub const Loop = struct {
                     return;
                 }
 
-                const batch = tools.execute(arena, l.gpa, l.io, l.bus, l.session.info.id, l.session.info.location, l.config.executable_tools, calls, reply.stopReason == .length, l.config.approval, l.config.tool_timeout_ms, l.hooks(), l.config.artifacts_dir) catch |err| tools.Batch{ .outcomes = &.{}, .failure = err };
+                const batch = tools.execute(arena, l.gpa, l.io, l.bus, l.session.info.id, l.session.info.location, l.config.executable_tools, calls, reply.stopReason == .length, l.config.tool_timeout_ms, l.hooks(), l.config.artifacts_dir) catch |err| tools.Batch{ .outcomes = &.{}, .failure = err };
                 const closed = l.closeTurn(reply, calls, batch.outcomes, tools.interrupted);
                 if (batch.failure) |err| {
                     // Finished calls keep their real results (a completed

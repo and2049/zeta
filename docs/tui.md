@@ -88,7 +88,22 @@ changes nothing. Stop a running turn first.
 
 `@file` completion inserts a path reference for the agent to read using its
 normal tools. Images are explicit attachments and require an image-capable
-model. Permissions are answered in the client without pausing event reception.
+model.
+
+## Questions from plugins
+
+When a plugin asks something (see [permissions](permissions.md#questions)),
+the question replaces the editor until it is answered; events keep arriving
+meanwhile. The client shows its own session's questions and those for the
+project with no session. Escape declines any of them.
+
+- A yes/no question: **y**, **1** or Enter answers yes; **n** or **2** no.
+- A choice: Up and Down move, Enter picks; **1**–**9** pick directly.
+- Text: type it and press Enter; secret text shows as dots.
+- A form: one field at a time, Enter moves on; a value that does not fit
+  stays with a note.
+
+Notices from plugins appear in the conversation.
 
 ## Connecting a provider
 
@@ -112,7 +127,7 @@ the server's login timeout eventually expires it.
 
 The client subscribes to events before loading session snapshots. Reconnection
 restores completed messages, the current streaming draft, pending inputs, and
-outstanding permission requests. Server restart restores conversations without
+the questions plugins still have open for the session. Server restart restores conversations without
 automatically restarting interrupted turns.
 
 `/fork` continues in a copy of the current session (the original stays as it

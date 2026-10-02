@@ -26,7 +26,6 @@ pub fn registry(rt: *Runtime, arena: Allocator, location: []const u8, cfg: confi
         .description = tool.description,
         .inputSchema = try std.json.parseFromSliceLeaky(Value, arena, tool.input_schema, .{}),
         .sideEffect = tool.side_effect,
-        .permission = tool.permission,
         .executionMode = tool.execution_mode,
         .timeoutMs = tool.timeout_ms,
         .cancellable = tool.cancellable,

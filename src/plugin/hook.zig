@@ -3,12 +3,15 @@
 //! registration order within a layer); each sees what earlier ones changed,
 //! and the first that blocks or continues a turn ends the chain.
 //!
-//! Errors: a failing `tool_pre` hook blocks the call and a failing
-//! `permission` hook denies it; a failing `turn_stop` hook lets the turn
-//! stop; any other failing hook is logged and skipped.
+//! Errors: a failing `tool_pre` hook blocks the call; a failing `turn_stop`
+//! hook lets the turn stop; any other failing hook is logged and skipped.
+//!
+//! A hook may ask the user through `Scope.asker` (see `ask.zig`), e.g. a
+//! `tool_pre` hook that confirms a call before it runs.
 
 const std = @import("std");
 const proto = @import("proto");
+const ask = @import("ask.zig");
 const provider = @import("provider.zig");
 const tool = @import("tool.zig");
 const Allocator = std.mem.Allocator;
@@ -20,6 +23,8 @@ pub const Scope = struct {
     location: []const u8,
     provider: []const u8,
     model: []const u8,
+    /// Asks the user about this run; questions should carry `session`.
+    asker: ask.Asker = .none,
 };
 
 /// A tool call whose arguments passed the tool's schema.
@@ -35,6 +40,9 @@ pub const ToolPre = union(enum) {
     rewrite: std.json.Value,
     /// The call does not run; the model gets this reason as an error result.
     block: []const u8,
+    /// Like `block`, and the turn ends after this batch of calls (e.g. the
+    /// user refused the call).
+    deny: []const u8,
 };
 
 pub const ToolPost = union(enum) {
@@ -86,23 +94,6 @@ pub const PromptSubmit = union(enum) {
     block: []const u8,
 };
 
-/// A call that permission rules would ask the user about.
-pub const Ask = struct {
-    call: Call,
-    action: []const u8,
-    pattern: []const u8,
-};
-
-pub const Permission = union(enum) {
-    /// Ask the user as usual.
-    @"continue",
-    /// Run without asking, with these arguments if set (checked against the
-    /// schema again).
-    allow: ?std.json.Value,
-    /// Deny with this reason.
-    deny: []const u8,
-};
-
 /// Everything a hook receives is borrowed for the call; what it returns must
 /// live in `arena`, which lasts as long as the step it changes.
 pub const Hook = struct {
@@ -115,7 +106,6 @@ pub const Point = union(enum) {
     /// added to the history before its first prompt.
     session_start: *const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, scope: Scope, source: SessionSource) anyerror!?[]const u8,
     prompt_submit: *const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, scope: Scope, prompt: Prompt) anyerror!PromptSubmit,
-    permission: *const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, scope: Scope, ask: Ask) anyerror!Permission,
     context_build: *const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, scope: Scope, messages: []const proto.Message) anyerror!ContextBuild,
     provider_request: *const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, scope: Scope, request: provider.Request) anyerror!ProviderRequest,
     tool_pre: *const fn (ctx: ?*anyopaque, arena: Allocator, io: Io, scope: Scope, call: Call) anyerror!ToolPre,

@@ -17,6 +17,8 @@ pub const Hooks = struct {
         rewritten: bool = false,
         /// Set when a hook blocked the call: the reason for the model.
         blocked: ?[]const u8 = null,
+        /// The hook denied the call: the turn ends after this batch.
+        denied: bool = false,
     };
 
     pub fn toolPre(h: Hooks, arena: Allocator, io: Io, call: hook.Call) !Pre {
@@ -39,6 +41,11 @@ pub const Hooks = struct {
                 },
                 .block => |reason| {
                     out.blocked = reason;
+                    return out;
+                },
+                .deny => |reason| {
+                    out.blocked = reason;
+                    out.denied = true;
                     return out;
                 },
             }
@@ -143,22 +150,6 @@ pub const Hooks = struct {
         return out;
     }
 
-    /// The first hook that allows or denies decides; a failing hook denies.
-    pub fn permission(h: Hooks, arena: Allocator, io: Io, ask: hook.Ask) !hook.Permission {
-        for (h.list) |entry| {
-            const run = switch (entry.value.point) {
-                .permission => |f| f,
-                else => continue,
-            };
-            const action = run(entry.value.ctx, arena, io, h.scope, ask) catch |err| {
-                if (err == error.Canceled) return err;
-                return .{ .deny = try std.fmt.allocPrint(arena, "Permission denied: a hook from plugin '{s}' failed ({s}).", .{ entry.plugin, @errorName(err) }) };
-            };
-            if (action != .@"continue") return action;
-        }
-        return .@"continue";
-    }
-
     /// Text for one more step, or null to stop. Only honoured when the
     /// previous stop was not itself continued.
     pub fn turnStop(h: Hooks, arena: Allocator, io: Io, stop: hook.Stop) !?[]const u8 {
@@ -202,6 +193,7 @@ test "tool.pre rewrites chain, the first block wins, and a failure blocks" {
             return .{ .rewrite = .{ .integer = call.args.integer + 1 } };
         }
         fn block(_: ?*anyopaque, _: Allocator, _: Io, _: hook.Scope, call: hook.Call) anyerror!hook.ToolPre {
+            if (call.args.integer >= 5) return .{ .deny = "refused" };
             return if (call.args.integer >= 2) .{ .block = "too big" } else .@"continue";
         }
         fn fail(_: ?*anyopaque, _: Allocator, _: Io, _: hook.Scope, _: hook.Call) anyerror!hook.ToolPre {
@@ -217,7 +209,12 @@ test "tool.pre rewrites chain, the first block wins, and a failure blocks" {
     const once = try h.toolPre(a, testing.io, .{ .id = "1", .name = "t", .args = .{ .integer = 0 } });
     try testing.expect(once.blocked == null and once.rewritten);
     try testing.expectEqual(@as(i64, 2), once.args.integer);
-    try testing.expectEqualStrings("too big", (try h.toolPre(a, testing.io, .{ .id = "1", .name = "t", .args = .{ .integer = 1 } })).blocked.?);
+    const big = try h.toolPre(a, testing.io, .{ .id = "1", .name = "t", .args = .{ .integer = 1 } });
+    try testing.expectEqualStrings("too big", big.blocked.?);
+    try testing.expect(!big.denied);
+    const refused = try h.toolPre(a, testing.io, .{ .id = "1", .name = "t", .args = .{ .integer = 4 } });
+    try testing.expectEqualStrings("refused", refused.blocked.?);
+    try testing.expect(refused.denied);
     const failing: Hooks = .{ .list = only(.{ .tool_pre = Fns.fail }) };
     const blocked = (try failing.toolPre(a, testing.io, .{ .id = "1", .name = "t", .args = .null })).blocked.?;
     try testing.expect(std.mem.indexOf(u8, blocked, "Broken") != null);

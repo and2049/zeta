@@ -13,21 +13,18 @@ pub const Options = struct {
     environment: ?struct { profile: ?[]const u8 = null, model: ?[]const u8 = null } = null,
 };
 pub const Inbox = struct { id: []const u8, text: []const u8, delivery: enum { queue, steer }, images: []const proto.attachment.Image = &.{} };
-pub const Permission = struct { id: []const u8, action: []const u8, pattern: []const u8, toolCallId: ?[]const u8 = null, expiresAt: i64 };
 pub const Snapshot = struct {
     revision: u64,
     info: Info,
     options: Options,
     running: bool,
     inbox: []const Inbox,
-    pendingPermissions: []const Permission,
     messages: []const proto.Message,
     inflight: ?proto.Message,
     nextBefore: ?[]const u8,
 };
 pub const Page = struct { messages: []const proto.Message, nextBefore: ?[]const u8 };
 pub const Receipt = struct { inboxId: []const u8 };
-pub const Reply = enum { allow_once, allow_session, deny };
 pub const Delivery = enum { queue, steer };
 
 fn result(comptime T: type, arena: Allocator, response: Client.Response) !T {
@@ -100,7 +97,6 @@ pub fn decodeSnapshot(a: Allocator, bytes: []const u8) !Snapshot {
         options: Options,
         running: bool,
         inbox: []const Inbox,
-        pendingPermissions: []const Permission,
         messages: []const std.json.Value,
         inflight: ?std.json.Value,
         nextBefore: ?[]const u8,
@@ -113,7 +109,6 @@ pub fn decodeSnapshot(a: Allocator, bytes: []const u8) !Snapshot {
         .options = raw.options,
         .running = raw.running,
         .inbox = raw.inbox,
-        .pendingPermissions = raw.pendingPermissions,
         .messages = messages,
         .inflight = if (raw.inflight) |v| try proto.Message.parse(a, v) else null,
         .nextBefore = raw.nextBefore,
@@ -193,9 +188,6 @@ pub fn update(c: *Client, a: Allocator, id: []const u8, title: ?[]const u8, mode
 pub fn setThinking(c: *Client, a: Allocator, id: []const u8, level: []const u8) !Info {
     return result(Info, a, try c.patchJson(a, try path(a, id, ""), .{ .thinking = level }));
 }
-pub fn permissionReply(c: *Client, a: Allocator, id: []const u8, reply: Reply) !void {
-    _ = try result(struct { ok: bool }, a, try c.postJson(a, try std.fmt.allocPrint(a, "/permissions/{s}/reply", .{id}), .{ .reply = reply }));
-}
 pub fn config(c: *Client, a: Allocator, id: []const u8) !std.json.Value {
     return resource(c, a, "config", id);
 }
@@ -227,7 +219,7 @@ test "snapshot decoder retains image blocks and changes" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
     const v = try decodeSnapshot(arena.allocator(),
-        \\{"revision":1,"info":{"id":"s","location":"/a","created":1},"options":{},"running":false,"inbox":[],"pendingPermissions":[],"messages":[{"id":"m","role":"user","content":[{"type":"image","mimeType":"image/png","data":"YWJj"}],"timestamp":1,"changes":[{"path":"a","before":"x","after":"y"}]}],"inflight":null,"nextBefore":null}
+        \\{"revision":1,"info":{"id":"s","location":"/a","created":1},"options":{},"running":false,"inbox":[],"messages":[{"id":"m","role":"user","content":[{"type":"image","mimeType":"image/png","data":"YWJj"}],"timestamp":1,"changes":[{"path":"a","before":"x","after":"y"}]}],"inflight":null,"nextBefore":null}
     );
     try std.testing.expectEqualStrings("YWJj", v.messages[0].content[0].image.data);
     try std.testing.expectEqualStrings("y", v.messages[0].changes[0].after);

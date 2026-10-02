@@ -20,7 +20,6 @@ pub const search: plugin.tool.Tool = .{
     \\{"type":"object","properties":{"query":{"type":"string","description":"Words to match against tool names and descriptions"},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"]}
     ,
     .side_effect = .read,
-    .permission = .{ .target = .none },
     .execute = run,
 };
 
