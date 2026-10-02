@@ -161,7 +161,7 @@ pub fn drawCached(screen: *Screen, app: *App, frame: Frame, cache: *Cache) ![]u8
 
     // Blank rows at the top and above the dock.
     try transcriptArea(screen, app, frame, cache, 1, top -| 2, without_list);
-    return screen.render(@min(cursor.x, screen.cols - 1), @min(cursor.y, rows - 1));
+    return screen.render(cursor);
 }
 
 /// `⠋ Thinking… 12s · Esc to stop` while a turn runs.

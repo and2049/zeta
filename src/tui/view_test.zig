@@ -180,6 +180,16 @@ test "multiline input grows the dock and the cursor follows" {
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\x1b[17;10H") != null);
 }
 
+test "the permission question hides the cursor" {
+    var f = try Fixture.init(60, 20);
+    defer f.deinit();
+    f.app.overlay = .permission;
+    f.app.permission = .{ .id = "p", .action = "external_directory", .pattern = "/etc/hostname", .expires_at = 0 };
+    const bytes = try view.draw(&f.screen, &f.app, .{ .registry = &f.registry });
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expect(std.mem.indexOf(u8, bytes, "\x1b[?25h") == null);
+}
+
 test "prepending older history keeps the distance from the end" {
     var f = try Fixture.init(36, 16);
     defer f.deinit();

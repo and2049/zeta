@@ -27,7 +27,8 @@ pub fn contentRows(app: *const App, registry: *const plugin.Registry, cols: usiz
 }
 
 /// Draws the rules at `top` and `top + content + 1` and the content between.
-pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palette: Palette, top: usize, content: usize) !Cursor {
+/// Returns where the cursor goes, or null to hide it when nothing takes text.
+pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palette: Palette, top: usize, content: usize) !?Cursor {
     const rule: screen_mod.Style = .{ .foreground = terminal_style.ruleColor(app.thinking) };
     for ([_]usize{ top, top + content + 1 }) |y| {
         var x: usize = 0;
@@ -111,7 +112,7 @@ pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palett
             return .{ .x = @min(1 + presentation.columns(app.picker_query.items), screen.cols - 1), .y = y };
         },
     }
-    return .{ .x = 1, .y = y };
+    return null;
 }
 
 const fixed_keys = [_][2][]const u8{

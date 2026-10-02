@@ -53,6 +53,9 @@ pub const Cell = struct {
     }
 };
 
+/// Zero-based terminal cursor position.
+pub const Cursor = struct { x: usize, y: usize };
+
 pub const Screen = struct {
     allocator: std.mem.Allocator,
     cols: usize,
@@ -129,8 +132,8 @@ pub const Screen = struct {
     }
 
     /// Returns owned synchronized ANSI bytes; caller frees with self.allocator.
-    /// Cursor is zero-based and clamped to bounds.
-    pub fn render(self: *Screen, cursor_x: usize, cursor_y: usize) ![]u8 {
+    /// Cursor is zero-based and clamped to bounds; null leaves it hidden.
+    pub fn render(self: *Screen, cursor: ?Cursor) ![]u8 {
         var out: std.Io.Writer.Allocating = .init(self.allocator);
         defer out.deinit();
         const w = &out.writer;
@@ -163,7 +166,9 @@ pub const Screen = struct {
                 x += 1;
             }
         }
-        try w.print("\x1b[0m\x1b[{d};{d}H\x1b[?25h\x1b[?2026l", .{ @min(cursor_y, self.rows - 1) + 1, @min(cursor_x, self.cols - 1) + 1 });
+        try w.writeAll("\x1b[0m");
+        if (cursor) |c| try w.print("\x1b[{d};{d}H\x1b[?25h", .{ @min(c.y, self.rows - 1) + 1, @min(c.x, self.cols - 1) + 1 });
+        try w.writeAll("\x1b[?2026l");
         @memcpy(self.previous, self.cells);
         self.invalid = false;
         return try self.allocator.dupe(u8, out.written());
@@ -174,11 +179,11 @@ test "screen diffs, wide cells, escape stripping" {
     var s = try Screen.init(std.testing.allocator, 5, 2);
     defer s.deinit();
     s.drawText(0, 0, "界a\x1b[31m!");
-    const first = try s.render(3, 0);
+    const first = try s.render(.{ .x = 3, .y = 0 });
     defer std.testing.allocator.free(first);
     try std.testing.expect(std.mem.indexOf(u8, first, "界") != null);
     try std.testing.expect(std.mem.indexOf(u8, first, "[31m") == null);
-    const second = try s.render(3, 0);
+    const second = try s.render(.{ .x = 3, .y = 0 });
     defer std.testing.allocator.free(second);
     try std.testing.expect(second.len < first.len);
 }
@@ -191,7 +196,7 @@ test "joined emoji, flag, combining and C1 are atomic safe cells" {
     try std.testing.expect(s.cells[1].continuation);
     try std.testing.expectEqualStrings("🇺🇸", s.cells[2].glyph[0..s.cells[2].len]);
     try std.testing.expectEqualStrings("e\xcc\x81", s.cells[4].glyph[0..s.cells[4].len]);
-    const out = try s.render(5, 0);
+    const out = try s.render(.{ .x = 5, .y = 0 });
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "\xc2\x9b") == null);
 }
@@ -200,11 +205,11 @@ test "overwriting half a wide cell clears its former lead" {
     var s = try Screen.init(std.testing.allocator, 4, 1);
     defer s.deinit();
     s.drawText(0, 0, "界");
-    const first = try s.render(0, 0);
+    const first = try s.render(.{ .x = 0, .y = 0 });
     defer std.testing.allocator.free(first);
     s.drawText(1, 0, "x");
     try std.testing.expectEqualStrings(" ", s.cells[0].glyph[0..s.cells[0].len]);
-    const second = try s.render(1, 0);
+    const second = try s.render(.{ .x = 1, .y = 0 });
     defer std.testing.allocator.free(second);
     try std.testing.expect(std.mem.indexOf(u8, second, "\x1b[1;1H ") != null);
 }
@@ -213,11 +218,20 @@ test "style-only updates repaint using terminal palette and reset attributes" {
     var s = try Screen.init(std.testing.allocator, 3, 1);
     defer s.deinit();
     s.drawText(0, 0, "a");
-    const plain = try s.render(1, 0);
+    const plain = try s.render(.{ .x = 1, .y = 0 });
     defer std.testing.allocator.free(plain);
     s.drawStyledText(0, 0, "a", .{ .foreground = .green, .bold = true });
-    const styled = try s.render(1, 0);
+    const styled = try s.render(.{ .x = 1, .y = 0 });
     defer std.testing.allocator.free(styled);
     try std.testing.expect(std.mem.indexOf(u8, styled, "\x1b[0;32;49;1ma") != null);
     try std.testing.expect(std.mem.indexOf(u8, styled, "\x1b[0m\x1b[1;2H") != null);
+}
+
+test "a null cursor stays hidden" {
+    var s = try Screen.init(std.testing.allocator, 3, 1);
+    defer s.deinit();
+    const out = try s.render(null);
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "\x1b[?25l") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "\x1b[?25h") == null);
 }
