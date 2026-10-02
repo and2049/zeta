@@ -29,20 +29,25 @@ pub const Request = union(enum) {
     list_directories: []const u8,
     send: struct { text: []const u8, delivery: enum { queue, steer } },
     abort,
-    permission: enum { allow_once, allow_session, deny },
+    answer_question: struct { id: []const u8, action: []const u8, content: ?std.json.Value },
     older,
 };
 
 /// Returned strings are owned by the caller's request arena.
 pub fn handle(app: *App, registry: *const plugin.Registry, arena: std.mem.Allocator, ev: input.Event) !Request {
+    if (ev == .key and ev.key == .escape and app.overlay == .question) {
+        if (app.questions.items.items.len > 0) return .{ .answer_question = .{ .id = app.questions.items.items[0].question.id, .action = "decline", .content = null } };
+        app.overlay = .none;
+        return .none;
+    }
     switch (ev) {
         .wheel => |direction| {
             if (direction < 0) app.scrollUp(3) else app.scrollDown(3);
             return .none;
         },
         .ctrl => |letter| {
-            // Only quitting while typing a secret or answering a permission.
-            if ((app.overlay == .connect_key or app.overlay == .permission) and letter != 'q') return .none;
+            // Only quitting while typing a secret or answering a question.
+            if ((app.overlay == .connect_key or app.overlay == .question) and letter != 'q') return .none;
             const c = registry.bound(letter) orelse return .none;
             return .{ .command = .{ .name = c.name } };
         },
@@ -68,7 +73,7 @@ pub fn handle(app: *App, registry: *const plugin.Registry, arena: std.mem.Alloca
                 if (app.overlay != .none) {
                     if (app.overlay == .connect_key) app.clearSecret();
                     const flow = if (app.overlay == .connect_oauth and app.connect_flow != null) app.connect_flow.?.id else null;
-                    app.overlay = if (app.overlay != .permission and app.permission != null) .permission else .none;
+                    app.overlay = if (app.questions.items.items.len > 0) .question else .none;
                     app.picker_confirm_pending = false;
                     if (flow) |id| return .{ .cancel_flow = id };
                     return .none;
@@ -84,6 +89,16 @@ pub fn handle(app: *App, registry: *const plugin.Registry, arena: std.mem.Alloca
             else => {},
         },
         else => {},
+    }
+    if (app.overlay == .question) {
+        if (app.questions.items.items.len == 0) {
+            app.overlay = .none;
+            return .none;
+        }
+        const entry = &app.questions.items.items[0];
+        const renderer = registry.questionRenderer(entry.question.kind) orelse return .none;
+        if (try renderer.handle(entry, ev)) |answer| return .{ .answer_question = .{ .id = entry.question.id, .action = answer.action, .content = answer.content } };
+        return .none;
     }
     if (app.overlay != .none) return @import("actions_overlay.zig").handle(app, arena, ev);
     if (try completion.current(app, registry, arena)) |list| if (try completing(app, registry, arena, ev, list)) |request| return request;
@@ -270,4 +285,55 @@ test "escape hides the completion list before it aborts" {
 
 test {
     _ = picker;
+}
+
+test "question keys answer confirm, select, input and validate form" {
+    var r = try plugin.Registry.init(std.testing.allocator, &@import("builtins.zig").plugins);
+    defer r.deinit();
+    var app = App.init(std.testing.allocator, "/tmp");
+    defer app.deinit();
+    app.session = "s";
+    try app.setSessionLocation("/tmp");
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const samples = [_][]const u8{
+        \\{"id":"c","kind":"confirm","source":"hook","message":"Allow?"}
+        ,
+        \\{"id":"s","kind":"select","source":"hook","message":"Pick","options":[{"value":"one"},{"value":"two"}]}
+        ,
+        \\{"id":"i","kind":"input","source":"hook","message":"Name","secret":true}
+        ,
+        \\{"id":"f","kind":"form","source":"hook","message":"Config","schema":{"properties":{"count":{"type":"integer","title":"Count"},"mode":{"type":"string","enum":["safe","fast"]}},"required":["count"]}}
+        ,
+    };
+    for (samples) |sample| try app.ask(try std.json.parseFromSliceLeaky(std.json.Value, a, sample, .{}), "s", null);
+    try std.testing.expectEqual(Request.none, try handle(&app, &r, a, .{ .ctrl = 'c' }));
+    try std.testing.expectEqualStrings("quit", (try handle(&app, &r, a, .{ .ctrl = 'q' })).command.name);
+    try std.testing.expectEqualStrings("accept", (try handle(&app, &r, a, .{ .text = 'y' })).answer_question.action);
+    app.resolve("c");
+    _ = try handle(&app, &r, a, .{ .key = .down });
+    try std.testing.expectEqualStrings("two", (try handle(&app, &r, a, .{ .key = .enter })).answer_question.content.?.string);
+    try std.testing.expectEqualStrings("one", (try handle(&app, &r, a, .{ .text = '1' })).answer_question.content.?.string);
+    app.resolve("s");
+    _ = try handle(&app, &r, a, .{ .text = 'é' });
+    _ = try handle(&app, &r, a, .{ .key = .backspace });
+    _ = try handle(&app, &r, a, .{ .text = 'x' });
+    try std.testing.expectEqualStrings("x", (try handle(&app, &r, a, .{ .key = .enter })).answer_question.content.?.string);
+    app.resolve("i");
+    _ = try handle(&app, &r, a, .{ .text = 'x' });
+    try std.testing.expectEqual(Request.none, try handle(&app, &r, a, .{ .key = .enter }));
+    try std.testing.expect(app.questions.items.items[0].invalid);
+    _ = try handle(&app, &r, a, .{ .key = .backspace });
+    _ = try handle(&app, &r, a, .{ .text = '3' });
+    try std.testing.expectEqual(Request.none, try handle(&app, &r, a, .{ .key = .enter }));
+    for ("unsafe") |ch| _ = try handle(&app, &r, a, .{ .text = ch });
+    try std.testing.expectEqual(Request.none, try handle(&app, &r, a, .{ .key = .enter }));
+    for (0..6) |_| _ = try handle(&app, &r, a, .{ .key = .backspace });
+    for ("safe") |ch| _ = try handle(&app, &r, a, .{ .text = ch });
+    const result = (try handle(&app, &r, a, .{ .key = .enter })).answer_question;
+    try std.testing.expectEqualStrings("accept", result.action);
+    try std.testing.expectEqual(@as(i64, 3), result.content.?.object.get("count").?.integer);
+    try std.testing.expectEqualStrings("safe", result.content.?.object.get("mode").?.string);
+    try std.testing.expectEqualStrings("decline", (try handle(&app, &r, a, .{ .key = .escape })).answer_question.action);
 }

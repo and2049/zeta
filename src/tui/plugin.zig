@@ -8,6 +8,10 @@ const App = @import("App.zig");
 const Worker = @import("app_network.zig").Worker;
 const Builder = @import("presentation_text.zig").Builder;
 const Palette = @import("palette.zig").Palette;
+const questions = @import("questions.zig");
+const input = @import("input.zig");
+const Screen = @import("screen.zig").Screen;
+const Cursor = @import("editor_view.zig").Cursor;
 
 /// What a command may touch: the UI state and the background request queue.
 pub const Context = struct {
@@ -69,12 +73,21 @@ pub const Plugin = struct {
     setup: *const fn (r: *Registry) anyerror!void,
 };
 
+/// A question kind's complete dock behavior.
+pub const QuestionRenderer = struct {
+    kind: @import("client").questions.Kind,
+    rows: *const fn (*const questions.Entry) usize,
+    draw: *const fn (*Screen, *const questions.Entry, usize, usize) ?Cursor,
+    handle: *const fn (*questions.Entry, input.Event) anyerror!?questions.Answer,
+};
+
 pub const Registry = struct {
     gpa: std.mem.Allocator,
     commands: std.ArrayList(Command) = .empty,
     keybinds: std.ArrayList(Keybind) = .empty,
     slots: std.ArrayList(SlotEntry) = .empty,
     tools: std.ArrayList(ToolRenderer) = .empty,
+    question_renderers: std.ArrayList(QuestionRenderer) = .empty,
 
     /// Registers every plugin in order; a later command or keybinding with
     /// the same name or chord replaces an earlier one.
@@ -90,6 +103,7 @@ pub const Registry = struct {
         r.keybinds.deinit(r.gpa);
         r.slots.deinit(r.gpa);
         r.tools.deinit(r.gpa);
+        r.question_renderers.deinit(r.gpa);
     }
 
     pub fn addCommand(r: *Registry, entry: Command) !void {
@@ -116,6 +130,19 @@ pub const Registry = struct {
 
     pub fn addToolRenderer(r: *Registry, renderer: ToolRenderer) !void {
         try r.tools.append(r.gpa, renderer);
+    }
+
+    pub fn addQuestionRenderer(r: *Registry, renderer: QuestionRenderer) !void {
+        for (r.question_renderers.items) |*existing| if (existing.kind == renderer.kind) {
+            existing.* = renderer;
+            return;
+        };
+        try r.question_renderers.append(r.gpa, renderer);
+    }
+
+    pub fn questionRenderer(r: *const Registry, kind: @import("client").questions.Kind) ?QuestionRenderer {
+        for (r.question_renderers.items) |entry| if (entry.kind == kind) return entry;
+        return null;
     }
 
     pub fn command(r: *const Registry, name: []const u8) ?Command {

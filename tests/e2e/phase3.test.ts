@@ -237,31 +237,6 @@ describe("durable sessions and history", () => {
     expect((await sb.api(`/sessions/${a}`, "DELETE")).status).toBe(404);
   });
 
-  test("abort resolves a pending permission and refuses a late approval", async () => {
-    sb.writeConfig({
-      model: "fake/base", provider: { fake: { options: { baseURL: llm.baseURL } } },
-      tool_timeout_ms: 5000,
-      permission: [{ action: "write", pattern: "*", effect: "ask" }],
-    });
-    await boot();
-    const feed = await sb.api("/event");
-    expect(feed.status).toBe(200);
-    const reader = feed.body!.getReader();
-    try {
-      const id = await create();
-      llm.reply({ calls: [{ id: "pending-write", name: "write", args: { path: "unapproved.txt", content: "no" } }] });
-      await prompt(id, "write");
-      const pending = await eventually(() => snapshot(id), (s) => s.pendingPermissions.length > 0);
-      const permissionId = pending.pendingPermissions[0].id;
-      expect((await sb.api(`/sessions/${id}/abort`, "POST", {})).status).toBe(200);
-      expect((await snapshot(id)).pendingPermissions).toEqual([]);
-      expect((await sb.api(`/permissions/${permissionId}/reply`, "POST", { reply: "allow_once" })).status).toBe(404);
-      expect(existsSync(join(sb.project, "unapproved.txt"))).toBe(false);
-    } finally {
-      await reader.cancel();
-    }
-  });
-
   test("abort joins a running bash tool before returning and prevents its delayed side effect", async () => {
     await boot();
     const id = await create();
@@ -328,8 +303,9 @@ describe("administration", () => {
     expect((await sb.api("/registry")).status).toBe(400);
     const registry = await json(`/registry?session=${id}`);
     const tool = (name: string) => registry.tools.find((t: any) => t.name === name);
-    expect(tool("read")).toMatchObject({ plugin: "read", permission: { target: "path", arg: "path" } });
-    expect(tool("skill")).toMatchObject({ plugin: "skills", permission: { target: "value", arg: "name" } });
+    expect(tool("read")).toMatchObject({ plugin: "read", sideEffect: "read" });
+    expect(tool("read").permission).toBeUndefined();
+    expect(tool("skill")).toMatchObject({ plugin: "skills" });
     expect(registry.plugins).toContainEqual({ id: "openai", layer: "builtin", source: "builtin" });
     expect(registry.providers.map((p: any) => p.id)).toEqual(["openai", "anthropic", "deepseek", "zai", "zhipuai", "openrouter", "*"]);
     expect(registry.prompt_sections.slice(0, 2)).toEqual(["base", "environment"]);

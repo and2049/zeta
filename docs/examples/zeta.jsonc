@@ -4,7 +4,10 @@
   "provider": {
     "openai": { "options": { "apiKey": "{env:OPENAI_API_KEY}" } }
   },
-  "permission": [
-    { "action": "bash", "pattern": "*", "effect": "ask" }
-  ]
+  // Settings for the example permissions extension (see permissions.md).
+  "plugin": {
+    "permissions": {
+      "rules": [{ "tool": "bash", "pattern": "*", "effect": "ask" }]
+    }
+  }
 }

@@ -44,31 +44,6 @@ pub fn logout(c: *Client, a: A, location: []const u8, name: []const u8) !void {
     try check(try c.delete(a, try std.fmt.allocPrint(a, "/mcp/{s}/auth?location={s}", .{ try api.encode(a, name), try api.encode(a, location) })));
 }
 
-/// Answers a question a plugin asked (`elicitation.requested`): `accept`
-/// with `content` (a JSON object), `decline` or `cancel`.
-pub fn answer(c: *Client, a: A, id: []const u8, action: []const u8, content: ?std.json.Value) !void {
-    const p = try std.fmt.allocPrint(a, "/elicitations/{s}/reply", .{try api.encode(a, id)});
-    try check(if (content) |v| try c.postJson(a, p, .{ .action = action, .content = v }) else try c.postJson(a, p, .{ .action = action }));
-}
-
-/// Declines the questions plugins have open for `session` at `location`
-/// (a client that cannot answer, after it missed events), leaving other
-/// sessions' questions to clients that may answer them; how many it
-/// declined.
-pub fn declineOpen(c: *Client, a: A, location: []const u8, session: []const u8) !usize {
-    const response = try c.get(a, try std.fmt.allocPrint(a, "/elicitations?location={s}", .{try api.encode(a, location)}));
-    try check(response);
-    const body = try std.json.parseFromSliceLeaky(struct { elicitations: []const struct { id: []const u8, session: ?[]const u8 = null } }, a, response.body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
-    var declined: usize = 0;
-    for (body.elicitations) |q| {
-        const theirs = q.session orelse continue;
-        if (!std.mem.eql(u8, theirs, session)) continue;
-        answer(c, a, q.id, "decline", null) catch continue;
-        declined += 1;
-    }
-    return declined;
-}
-
 /// One line for a status bar, e.g. `MCP: git connected (4 tools), docs failed: timeout`.
 pub fn summary(buf: []u8, servers: []const Status) []const u8 {
     if (servers.len == 0) return "MCP: no servers configured.";

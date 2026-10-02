@@ -7,11 +7,11 @@ import { Sandbox, jsonEvents, type AgentEvent } from "./harness";
 let sb: Sandbox;
 let llm: FakeOpenAI;
 
-function config(permission: Array<{ action: string; pattern: string; effect: string }> = []) {
+function config(extra: Record<string, unknown> = {}) {
   sb.writeConfig({
     model: "fake/test-model",
     provider: { fake: { options: { baseURL: llm.baseURL } } },
-    permission,
+    ...extra,
   });
 }
 
@@ -132,16 +132,16 @@ describe("tool continuation and log", () => {
       .toEqual(["first", "second"]);
   });
 
-  test.each(["ask", "deny"])("%s permission fails closed without a client and stops the turn", async (effect) => {
-    config([{ action: "write", pattern: "*", effect }]);
-    llm.reply({ calls: [call("blocked", "write", { path: "forbidden", content: "no" })] }, { text: "Should never be requested." });
-    const { code, stderr, events } = await run();
-    expect(code).toBe(1);
-    expect(stderr).toContain("the run stopped before a final reply: Tool execution denied by permission policy.");
-    expect(assertToolEvents(events, "blocked", "write", true)).toMatch(/denied/i);
-    expect(existsSync(join(sb.project, "forbidden"))).toBe(false);
-    expect(llm.requests).toHaveLength(1);
-    expect(events.filter((event) => event.type === "turn.end")).toHaveLength(1);
+  test("tool calls run without asking; a leftover permission key is ignored with a warning", async () => {
+    config({ permission: [{ action: "write", pattern: "*", effect: "deny" }] });
+    llm.reply({ calls: [call("written", "write", { path: "allowed", content: "yes" })] }, { text: "Done." });
+    const { code, events } = await run();
+    expect(code).toBe(0);
+    expect(assertToolEvents(events, "written", "write", false)).toContain("allowed");
+    expect(readFileSync(join(sb.project, "allowed"), "utf8")).toBe("yes");
+    expect(events.some((event) => event.type === "question.asked")).toBe(false);
+    const shown = await (await sb.api(`/config?location=${encodeURIComponent(sb.project)}`)).json();
+    expect(JSON.stringify(shown.diagnostics)).toContain("permission");
   });
 
   test("webfetch follows a redirect and decodes a gzip HTML response", async () => {
@@ -163,8 +163,7 @@ describe("tool continuation and log", () => {
     }
   });
 
-  test("webfetch checks permission for each redirect hop", async () => {
-    config([{ action: "webfetch", pattern: "*secret*", effect: "deny" }]);
+  test("webfetch stops at a redirect to another host and returns its URL", async () => {
     const paths: string[] = [];
     const fixture = Bun.serve({
       hostname: "127.0.0.1",
@@ -173,16 +172,16 @@ describe("tool continuation and log", () => {
         const path = new URL(req.url).pathname;
         paths.push(path);
         return path === "/start"
-          ? new Response(null, { status: 302, headers: { location: "/secret" } })
-          : new Response("secret contents");
+          ? new Response(null, { status: 302, headers: { location: `http://localhost:${fixture.port}/elsewhere` } })
+          : new Response("other host contents");
       },
     });
     try {
-      llm.reply({ calls: [call("fetch-1", "webfetch", { url: `http://127.0.0.1:${fixture.port}/start` })] }, { text: "Should never be requested." });
-      const { events } = await run();
-      expect(assertToolEvents(events, "fetch-1", "webfetch", true)).toMatch(/denied/i);
+      llm.reply({ calls: [call("fetch-1", "webfetch", { url: `http://127.0.0.1:${fixture.port}/start` })] }, { text: "Stopped." });
+      const { code, events } = await run();
+      expect(code).toBe(0);
+      expect(assertToolEvents(events, "fetch-1", "webfetch", false)).toBe(`Redirected to another host: http://localhost:${fixture.port}/elsewhere\nFetch that URL to follow the redirect.`);
       expect(paths).toEqual(["/start"]);
-      expect(llm.requests).toHaveLength(1);
     } finally {
       fixture.stop(true);
     }

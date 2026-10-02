@@ -180,14 +180,35 @@ test "multiline input grows the dock and the cursor follows" {
     try std.testing.expect(std.mem.indexOf(u8, bytes, "\x1b[17;10H") != null);
 }
 
-test "the permission question hides the cursor" {
+test "plugin questions render each kind and typing alone shows a cursor" {
     var f = try Fixture.init(60, 20);
     defer f.deinit();
-    f.app.overlay = .permission;
-    f.app.permission = .{ .id = "p", .action = "external_directory", .pattern = "/etc/hostname", .expires_at = 0 };
-    const bytes = try view.draw(&f.screen, &f.app, .{ .registry = &f.registry });
-    defer std.testing.allocator.free(bytes);
-    try std.testing.expect(std.mem.indexOf(u8, bytes, "\x1b[?25h") == null);
+    f.app.session = "s";
+    try f.app.setSessionLocation("/home/me/project");
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const samples = [_][]const u8{
+        \\{"id":"c","kind":"confirm","source":"hook","message":"Run now?","detail":"tool bash"}
+        ,
+        \\{"id":"s","kind":"select","source":"hook","message":"Pick one","options":[{"value":"one","label":"First"}]}
+        ,
+        \\{"id":"i","kind":"input","source":"hook","message":"Enter name","placeholder":"Name"}
+        ,
+        \\{"id":"f","kind":"form","source":"hook","message":"Fill out","schema":{"properties":{"name":{"type":"string","title":"Name"}}}}
+        ,
+    };
+    const messages = [_][]const u8{ "Run now?", "Pick one", "Enter name", "Fill out" };
+    for (samples, messages, 0..) |sample, message, i| {
+        const data = try std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), sample, .{});
+        try f.app.ask(data, "s", null);
+        const bytes = try view.draw(&f.screen, &f.app, .{ .registry = &f.registry });
+        defer std.testing.allocator.free(bytes);
+        try std.testing.expect(try f.contains(message));
+        try std.testing.expect(try f.contains("hook"));
+        if (i == 1) try std.testing.expect(try f.contains("First"));
+        try std.testing.expectEqual(i >= 2, std.mem.indexOf(u8, bytes, "\x1b[?25h") != null);
+        f.app.resolve(f.app.questions.items.items[0].question.id);
+    }
 }
 
 test "prepending older history keeps the distance from the end" {

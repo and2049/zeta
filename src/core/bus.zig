@@ -75,10 +75,10 @@ pub const Bus = struct {
 
     /// Call after subscribing, then fetch Runtime.snapshot. Its revision is
     /// read under the runtime state lock after copying completed messages,
-    /// leased inputs, assistant draft, and pending permissions. Discard feed
+    /// leased inputs and the assistant draft. Discard feed
     /// frames through revision and apply newer frames. A message draft covers
     /// all earlier deltas; session.inbox.updated replaces the inbox projection
-    /// and permission.resolved removes an ask after revision.
+    /// after revision.
     /// On queue overflow reconnect and repeat, never infer state from a gap.
     pub fn revision(b: *Bus) u64 {
         b.mutex.lockUncancelable(b.io);
@@ -87,7 +87,7 @@ pub const Bus = struct {
     }
 
     /// Whether any subscriber is attached (for example, an SSE client that
-    /// could answer a permission ask).
+    /// could answer a question).
     pub fn hasSubscribers(b: *Bus) bool {
         b.mutex.lockUncancelable(b.io);
         defer b.mutex.unlock(b.io);

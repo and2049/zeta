@@ -8,29 +8,6 @@ const proto = @import("proto");
 pub const SideEffect = enum { none, read, workspace, network, system };
 pub const ExecutionMode = enum { parallel, sequential };
 
-/// What a permission rule's pattern is matched against.
-pub const Target = enum {
-    /// Nothing: the pattern is `*`.
-    none,
-    /// A filesystem path, canonicalized against the location. A path outside
-    /// it also needs the `external_directory` permission.
-    path,
-    /// A shell command, used as written.
-    command,
-    /// A URL, used as written.
-    url,
-    /// Any other string argument, used as written (e.g. a skill name).
-    value,
-};
-
-pub const Permission = struct {
-    /// Rule action; null means the tool name.
-    action: ?[]const u8 = null,
-    target: Target = .none,
-    /// The string argument holding the target. Required unless `none`.
-    arg: []const u8 = "",
-};
-
 pub const ResultBudget = struct {
     max_lines: usize = 2000,
     max_bytes: usize = 50 * 1024,
@@ -61,9 +38,6 @@ pub const ProgressSink = struct {
     /// call.
     tools: []const Tool = &.{},
     onProgress: *const fn (ctx: *anyopaque, partial_result: []const u8) anyerror!void,
-    /// Re-runs the host's permission check for this call as if it had been
-    /// made with `args` (e.g. a redirect target). Null means no policy gate.
-    onPermit: ?*const fn (ctx: *anyopaque, args: std.json.Value) anyerror!bool = null,
     /// Keeps the file at `path` as it is now, so the change the tool is
     /// about to make can be undone. Null when the host keeps nothing.
     onBackup: ?*const fn (ctx: *anyopaque, path: []const u8) anyerror!void = null,
@@ -77,13 +51,6 @@ pub const ProgressSink = struct {
     pub fn emit(s: ProgressSink, partial_result: []const u8) !void {
         return s.onProgress(s.ctx, partial_result);
     }
-
-    /// True when the host allows the call with `args`. A tool that reaches a
-    /// new resource mid-call must ask before touching it.
-    pub fn permit(s: ProgressSink, args: std.json.Value) !bool {
-        const check = s.onPermit orelse return true;
-        return check(s.ctx, args);
-    }
 };
 
 pub const Tool = struct {
@@ -93,8 +60,6 @@ pub const Tool = struct {
     input_schema: []const u8,
     /// Omitted side effects are treated as mutating, never read-only.
     side_effect: SideEffect = .workspace,
-    /// How permission rules see a call; checked by the host before execute.
-    permission: Permission = .{},
     /// Null inherits the configured tool deadline (120 seconds by default).
     /// An explicit value always overrides it, including 120_000.
     timeout_ms: ?u64 = null,
@@ -111,8 +76,8 @@ pub const Tool = struct {
     /// Runnable, but not offered to the model: a `dispatch` tool reaches it.
     deferred: bool = false,
     /// Takes `{"name", "arguments"}` and runs the deferred tool `name` with
-    /// those arguments, through the same schema check, hooks and
-    /// permissions as a direct call. Its own `execute` is not used.
+    /// those arguments, through the same schema check and hooks as a
+    /// direct call. Its own `execute` is not used.
     dispatch: bool = false,
     ctx: ?*anyopaque = null,
     /// `arena` owns transient data for this invocation, `location` is the
@@ -124,40 +89,7 @@ pub const Tool = struct {
     pub fn declaration(t: Tool) provider.ToolDecl {
         return .{ .name = t.name, .description = t.description, .parameters = t.input_schema };
     }
-
-    /// A declared target must name a string property of the input schema,
-    /// so the host can always find it in validated arguments.
-    pub fn checkPermission(t: Tool, input_schema: std.json.Value) error{InvalidPermissionTarget}!void {
-        if (t.permission.target == .none) return;
-        if (t.permission.arg.len == 0 or input_schema != .object) return error.InvalidPermissionTarget;
-        const properties = input_schema.object.get("properties") orelse return error.InvalidPermissionTarget;
-        if (properties != .object) return error.InvalidPermissionTarget;
-        const property = properties.object.get(t.permission.arg) orelse return error.InvalidPermissionTarget;
-        if (property != .object) return error.InvalidPermissionTarget;
-        const kind = property.object.get("type") orelse return error.InvalidPermissionTarget;
-        if (kind != .string or !std.mem.eql(u8, kind.string, "string")) return error.InvalidPermissionTarget;
-    }
 };
-
-test "a declared permission target must be a string property" {
-    const stub = struct {
-        fn execute(_: ?*anyopaque, _: std.mem.Allocator, _: std.Io, _: []const u8, _: std.json.Value, _: ProgressSink) anyerror!Result {
-            return .{ .text = "ok" };
-        }
-    }.execute;
-    const parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
-        \\{"type":"object","properties":{"path":{"type":"string"},"n":{"type":"integer"}}}
-    , .{});
-    defer parsed.deinit();
-    var t: Tool = .{ .name = "x", .description = "", .input_schema = "", .execute = stub };
-    try t.checkPermission(parsed.value);
-    t.permission = .{ .target = .path, .arg = "path" };
-    try t.checkPermission(parsed.value);
-    for ([_][]const u8{ "", "n", "missing" }) |arg| {
-        t.permission.arg = arg;
-        try std.testing.expectError(error.InvalidPermissionTarget, t.checkPermission(parsed.value));
-    }
-}
 
 test "tool policy defaults are conservative and declaration is advertisement only" {
     const stub = struct {
@@ -170,7 +102,6 @@ test "tool policy defaults are conservative and declaration is advertisement onl
     try std.testing.expectEqual(@as(?u64, null), t.timeout_ms);
     try std.testing.expect(t.cancellable);
     try std.testing.expectEqual(ExecutionMode.parallel, t.execution_mode);
-    try std.testing.expectEqual(Target.none, t.permission.target);
     try std.testing.expectEqual(@as(usize, 2000), t.result_budget.max_lines);
     try std.testing.expectEqual(@as(usize, 50 * 1024), t.result_budget.max_bytes);
     const decl = t.declaration();

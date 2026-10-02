@@ -72,16 +72,14 @@ pub const types = struct {
     pub const tool_execution_start = "tool.execution.start";
     pub const tool_execution_update = "tool.execution.update";
     pub const tool_execution_end = "tool.execution.end";
-    /// A plugin asks the user (`{id, source, message, schema, expiresAt}`,
-    /// project-wide: no session); answered with `POST
-    /// /elicitations/:id/reply`. Then `{id, action}`.
-    /// A tool call needs approval (`{id, action, pattern, toolCallId,
-    /// timeoutMs, expiresAt}`); answered with `POST /permissions/:id/reply`.
-    /// Then `{id, reply}` once answered, expired or withdrawn.
-    pub const permission_asked = "permission.asked";
-    pub const permission_resolved = "permission.resolved";
-    pub const elicitation_requested = "elicitation.requested";
-    pub const elicitation_resolved = "elicitation.resolved";
+    /// A plugin asks the user (`{id, session, source, message, kind,
+    /// expiresAt}` plus the kind's fields, see `docs/protocol.md`);
+    /// answered with `POST /questions/:id/reply`. Then `{id, action}` once
+    /// answered, expired or withdrawn.
+    pub const question_asked = "question.asked";
+    pub const question_resolved = "question.resolved";
+    /// A plugin tells the user something: `{source, message, level}`.
+    pub const plugin_notice = "plugin.notice";
 };
 
 /// Decoded form, for clients. `data` stays raw JSON.

@@ -13,7 +13,6 @@ pub const Event = enum {
     SessionStart,
     UserPromptSubmit,
     PreToolUse,
-    PermissionRequest,
     PostToolUse,
     PostToolUseFailure,
     Stop,
@@ -101,8 +100,8 @@ pub fn matches(matcher: []const u8, value: []const u8) bool {
     while (alternatives.next()) |raw| {
         const alt = std.mem.trim(u8, raw, " ");
         if (alt.len == 0) continue;
-        if (core.permissions.glob(alt, value)) return true;
-        if (other) |name| if (core.permissions.glob(alt, name)) return true;
+        if (core.glob.match(alt, value)) return true;
+        if (other) |name| if (core.glob.match(alt, name)) return true;
     }
     return false;
 }

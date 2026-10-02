@@ -3,7 +3,6 @@ const std = @import("std");
 const Runtime = @import("Runtime.zig");
 const Session = @import("session.zig").Session;
 const config = @import("config.zig");
-const permissions = @import("permissions.zig");
 const types = @import("proto").event.types;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -187,20 +186,10 @@ fn createSessionImpl(rt: *Runtime, owned: ?Allocator, location: []const u8, over
     return result;
 }
 
-/// False for an unknown or already-answered permission request.
-pub fn replyPermission(rt: *Runtime, id: []const u8, answer: permissions.Reply) bool {
+/// The last event listener left: open questions decline.
+pub fn disconnectQuestions(rt: *Runtime) void {
     rt.mutex.lockUncancelable(rt.io);
     defer rt.mutex.unlock(rt.io);
-    if (rt.broker) |*broker| return broker.reply(id, answer);
-    return false;
-}
-
-/// The last event listener left: open permission asks deny and open
-/// questions decline.
-pub fn disconnectPermissions(rt: *Runtime) void {
-    rt.mutex.lockUncancelable(rt.io);
-    defer rt.mutex.unlock(rt.io);
-    if (rt.broker) |*broker| broker.disconnect();
     if (rt.asks) |*a| a.disconnect();
 }
 

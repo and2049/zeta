@@ -28,7 +28,6 @@ pub fn add(e: *Extension, v: Allocator, owner: plugin.Registry.Owner, reg: regis
             .name = t.name,
             .description = t.description,
             .input_schema = t.parameters,
-            .permission = t.permission,
             .side_effect = t.side_effect,
             .timeout_ms = t.timeout_ms,
             .execution_mode = if (t.sequential) .sequential else .parallel,
@@ -47,7 +46,6 @@ pub fn add(e: *Extension, v: Allocator, owner: plugin.Registry.Owner, reg: regis
         .session_start => .{ .session_start = sessionStart },
         .prompt_submit => .{ .prompt_submit = promptSubmit },
         .tool_pre => .{ .tool_pre = toolPre },
-        .permission => .{ .permission = permission },
         .tool_post => .{ .tool_post = toolPost },
         .turn_stop => .{ .turn_stop = turnStop },
     } });
@@ -131,15 +129,8 @@ fn toolPre(ctx: ?*anyopaque, arena: Allocator, _: Io, scope: hook.Scope, call: h
     const r = try ask(ctx, arena, "tool_pre", scope, .{ .call = try callValue(arena, call) });
     const kind = action(r);
     if (std.mem.eql(u8, kind, "block")) return .{ .block = string(r, "reason") orelse "Blocked by an extension." };
-    if (std.mem.eql(u8, kind, "rewrite")) return .{ .rewrite = r.object.get("arguments") orelse return error.InvalidHookResult };
-    return .@"continue";
-}
-
-fn permission(ctx: ?*anyopaque, arena: Allocator, _: Io, scope: hook.Scope, request: hook.Ask) anyerror!hook.Permission {
-    const r = try ask(ctx, arena, "permission", scope, .{ .call = try callValue(arena, request.call), .action = request.action, .pattern = request.pattern });
-    const kind = action(r);
     if (std.mem.eql(u8, kind, "deny")) return .{ .deny = string(r, "reason") orelse "Denied by an extension." };
-    if (std.mem.eql(u8, kind, "allow")) return .{ .allow = if (r == .object) r.object.get("arguments") else null };
+    if (std.mem.eql(u8, kind, "rewrite")) return .{ .rewrite = r.object.get("arguments") orelse return error.InvalidHookResult };
     return .@"continue";
 }
 

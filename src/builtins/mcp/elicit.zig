@@ -31,7 +31,7 @@ pub fn answer(s: *Server, a: Allocator, params: Value, owner: Owner) !Value {
         .location = s.location,
         .source = try std.fmt.allocPrint(a, "mcp:{s}", .{s.spec.name}),
         .message = message,
-        .schema = try std.json.Stringify.valueAlloc(a, schema, .{}),
+        .kind = .{ .form = .{ .schema = try std.json.Stringify.valueAlloc(a, schema, .{}) } },
         .timeout_ms = owner.timeout_ms,
         .session = owner.session,
         .withdrawn = owner.withdrawn,

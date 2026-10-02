@@ -9,7 +9,6 @@ pub const tool: plugin.tool.Tool = .{
     \\{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"number","exclusiveMinimum":0,"maximum":2147483.647}},"required":["command"],"additionalProperties":false}
     ,
     .side_effect = .system,
-    .permission = .{ .target = .command, .arg = "command" },
     .execution_mode = .sequential,
     .execute = execute,
 };

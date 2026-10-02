@@ -1,5 +1,5 @@
 //! Keys while the dock shows something other than the editor: a picker, a
-//! permission question, or a provider sign-in step.
+//! provider sign-in step.
 const std = @import("std");
 const App = @import("App.zig");
 const input = @import("input.zig");
@@ -9,24 +9,11 @@ const Request = @import("actions.zig").Request;
 
 pub fn handle(app: *App, arena: std.mem.Allocator, ev: input.Event) !Request {
     switch (app.overlay) {
-        .none, .help => return .none,
-        .permission => return permission(app, ev),
+        .none, .help, .question => return .none,
         .connect_oauth => return oauth(app, ev),
         .connect_key => return secret(app, ev),
         .models, .thinking, .sessions, .pending, .connect_providers, .connect_methods => return choose(app, arena, ev),
     }
-}
-
-fn permission(app: *App, ev: input.Event) Request {
-    if (ev != .text) return .none;
-    const reply: Request = switch (ev.text) {
-        '1', 'y' => .{ .permission = .allow_once },
-        '2', 'a' => .{ .permission = .allow_session },
-        '3', 'n' => .{ .permission = .deny },
-        else => return .none,
-    };
-    app.overlay = .none;
-    return reply;
 }
 
 fn oauth(app: *App, ev: input.Event) Request {
@@ -106,7 +93,7 @@ fn choose(app: *App, arena: std.mem.Allocator, ev: input.Event) !Request {
                 }
                 const item = try selected(app, arena) orelse return .none;
                 const previous = app.overlay;
-                app.overlay = if (app.permission != null) .permission else .none;
+                app.overlay = if (app.questions.items.items.len > 0) .question else .none;
                 return switch (previous) {
                     .sessions => .{ .select_session = item.id },
                     .models => .{ .select_model = item.id },

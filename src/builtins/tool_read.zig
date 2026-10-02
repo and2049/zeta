@@ -15,7 +15,6 @@ pub const tool: plugin.tool.Tool = .{
     \\"limit":{"type":"integer","minimum":1}}}
     ,
     .side_effect = .read,
-    .permission = .{ .target = .path, .arg = "path" },
     .execute = execute,
 };
 

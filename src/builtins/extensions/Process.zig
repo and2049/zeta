@@ -62,8 +62,14 @@ pub const Message = struct {
 pub const Waiter = struct {
     storage: [64]Message = undefined,
     queue: Io.Queue(Message) = undefined,
-    /// The request holds one; the reader holds one while delivering.
+    /// The request holds one; the reader holds one while delivering, and a
+    /// question the extension asks for the request holds one (see `pin`).
     refs: std.atomic.Value(u32) = .init(1),
+    /// Questions open for this request: the user's answer may take longer
+    /// than the request's idle limit.
+    asking: std.atomic.Value(u32) = .init(0),
+    /// Set when the request is over; withdraws its questions.
+    ended: Io.Event = .unset,
 };
 
 gpa: Allocator,
@@ -259,6 +265,7 @@ pub fn request(p: *Process, arena: Allocator, method: []const u8, params: anytyp
         p.mutex.lockUncancelable(p.io);
         _ = p.waiters.remove(id);
         p.mutex.unlock(p.io);
+        waiter.ended.set(p.io);
         // Late messages are refused rather than waiting for room.
         waiter.queue.close(p.io);
         p.release(waiter);
@@ -266,6 +273,7 @@ pub fn request(p: *Process, arena: Allocator, method: []const u8, params: anytyp
     try p.send(try std.json.Stringify.valueAlloc(arena, .{ .type = "request", .id = id, .method = method, .params = params }, .{}));
     while (true) {
         const message = p.next(waiter, idle_ms) catch |err| {
+            if (err == error.ExtensionTimeout and waiter.asking.load(.acquire) > 0) continue;
             if (err == error.Canceled or err == error.ExtensionTimeout) {
                 var buf: [64]u8 = undefined;
                 _ = p.sendNow(std.fmt.bufPrint(&buf, "{{\"type\":\"cancel\",\"id\":\"{s}\"}}", .{id}) catch unreachable);
@@ -283,6 +291,23 @@ pub fn request(p: *Process, arena: Allocator, method: []const u8, params: anytyp
             },
         }
     }
+}
+
+/// The request `id` still waiting for its response, held for a question
+/// the extension asks on its behalf; null when there is none. Give it back
+/// with `unpin`.
+pub fn pin(p: *Process, id: []const u8) ?*Waiter {
+    p.mutex.lockUncancelable(p.io);
+    defer p.mutex.unlock(p.io);
+    const w = p.waiters.get(id) orelse return null;
+    _ = w.refs.fetchAdd(1, .acq_rel);
+    _ = w.asking.fetchAdd(1, .acq_rel);
+    return w;
+}
+
+pub fn unpin(p: *Process, waiter: *Waiter) void {
+    _ = waiter.asking.fetchSub(1, .acq_rel);
+    p.release(waiter);
 }
 
 /// Drops a reference to `waiter`; the last one frees it and anything still

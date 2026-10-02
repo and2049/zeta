@@ -14,7 +14,8 @@ const Client = @import("Client.zig");
 const attach = @import("attach.zig");
 const api = @import("session_api.zig");
 const types = proto.event.types;
-const permission = @import("permission.zig");
+const questions = @import("questions.zig");
+const question_prompt = @import("question_prompt.zig");
 const Follower = @import("run_follow.zig").Follower;
 
 pub const Options = struct {
@@ -130,7 +131,7 @@ pub fn run(gpa: Allocator, io: Io, stdout: *Io.Writer, stderr: *Io.Writer, o: Op
             link = recovered.link;
             skip_through = recovered.snapshot.revision;
             // Questions asked while disconnected cannot be answered here.
-            _ = @import("mcp.zig").declineOpen(&link.?.client, ev_arena.allocator(), info.location, info.id) catch 0;
+            _ = questions.declineOpen(&link.?.client, ev_arena.allocator(), info.location, info.id) catch 0;
             try follower.reconcile(recovered.snapshot.messages, recovered.snapshot.inflight);
             if (!recovered.snapshot.running) break;
             continue;
@@ -138,8 +139,14 @@ pub fn run(gpa: Allocator, io: Io, stdout: *Io.Writer, stderr: *Io.Writer, o: Op
         const e = f.event;
         if (skip_through) |revision| if (e.seq <= revision) continue;
         // Only this run's own questions: another client may answer the rest.
-        if (std.mem.eql(u8, e.type, types.elicitation_requested) and e.session != null and std.mem.eql(u8, e.session.?, info.id)) {
-            try declineQuestion(ev_arena.allocator(), &link.?.client, stderr, e.data);
+        if (std.mem.eql(u8, e.type, types.question_asked) and e.session != null and std.mem.eql(u8, e.session.?, info.id)) {
+            try answerQuestion(ev_arena.allocator(), io, &link.?.client, stderr, e.data);
+            continue;
+        }
+        if (std.mem.eql(u8, e.type, types.plugin_notice) and mine(e, info.id, info.location)) {
+            const n = std.json.parseFromValueLeaky(struct { source: []const u8 = "", message: []const u8 = "", level: []const u8 = "info" }, ev_arena.allocator(), e.data, .{ .ignore_unknown_fields = true }) catch continue;
+            try stderr.print("{s}{s}: {s}\n", .{ n.source, if (std.mem.eql(u8, n.level, "info")) "" else try std.fmt.allocPrint(ev_arena.allocator(), " ({s})", .{n.level}), n.message });
+            try stderr.flush();
             continue;
         }
         if (e.session == null or !std.mem.eql(u8, e.session.?, info.id)) continue;
@@ -148,18 +155,7 @@ pub fn run(gpa: Allocator, io: Io, stdout: *Io.Writer, stderr: *Io.Writer, o: Op
             try stdout.print("{s}\n", .{f.raw});
             try stdout.flush();
         }
-        if (std.mem.eql(u8, e.type, proto.event.types.permission_asked)) {
-            const ask = permission.parse(e.data) orelse continue;
-            const answer = try permission.prompt(io, stderr, ask);
-            const reply_path = try std.fmt.allocPrint(ev_arena.allocator(), "/permissions/{s}/reply", .{ask.id});
-            const res = try link.?.client.postJson(ev_arena.allocator(), reply_path, .{ .reply = @tagName(answer) });
-            // A deadline can race the reply; 404 means the broker has already
-            // removed the ask. Keep draining the turn's end events.
-            if (!res.ok() and res.status != .not_found) {
-                try stderr.print("permission reply failed: HTTP {d}\n", .{@intFromEnum(res.status)});
-                try stderr.flush();
-            }
-        } else if (std.mem.eql(u8, e.type, types.message_part_delta)) {
+        if (std.mem.eql(u8, e.type, types.message_part_delta)) {
             if (textDelta(e.data)) |d| try follower.delta(d.id, d.text);
         } else if (std.mem.eql(u8, e.type, types.message_end)) {
             const value = if (e.data == .object) e.data.object.get("message") else null;
@@ -182,13 +178,28 @@ pub fn run(gpa: Allocator, io: Io, stdout: *Io.Writer, stderr: *Io.Writer, o: Op
     return follower.finish();
 }
 
-/// A plugin asked the user for input for this project; a one-shot run
-/// cannot answer, so it declines.
-fn declineQuestion(a: Allocator, client: *Client, stderr: *Io.Writer, data: std.json.Value) !void {
-    const q = std.json.parseFromValueLeaky(struct { id: []const u8, source: []const u8 = "", message: []const u8 = "" }, a, data, .{ .ignore_unknown_fields = true }) catch return;
-    try stderr.print("{s} asked: {s} (declined: zeta run cannot answer)\n", .{ q.source, q.message });
-    try stderr.flush();
-    @import("mcp.zig").answer(client, a, q.id, "decline", null) catch {};
+/// A plugin asked this run's user something: asked on the terminal, or
+/// declined without one.
+fn answerQuestion(a: Allocator, io: Io, client: *Client, stderr: *Io.Writer, data: std.json.Value) !void {
+    const id = if (data == .object) if (data.object.get("id")) |v| if (v == .string) v.string else return else return else return;
+    const q = questions.Question.parse(a, data) orelse return questions.answer(client, a, id, "decline", null) catch {};
+    const reply = try question_prompt.ask(a, io, stderr, q);
+    if (std.mem.eql(u8, reply.action, "decline") and !(Io.File.stdin().isTty(io) catch false)) {
+        try stderr.print("{s} asked: {s} (declined: no terminal to answer on)\n", .{ q.source, q.message });
+        try stderr.flush();
+    }
+    questions.answer(client, a, q.id, reply.action, reply.content) catch |err| {
+        if (err == error.Canceled) return err;
+        try stderr.print("answering a question failed: {s}\n", .{@errorName(err)});
+        try stderr.flush();
+    };
+}
+
+/// A notice for this run: its session's, or its project's without one.
+fn mine(e: proto.event.Decoded, session: []const u8, location: []const u8) bool {
+    if (e.session) |s| return std.mem.eql(u8, s, session);
+    const at = e.location orelse return false;
+    return std.mem.eql(u8, at, location);
 }
 
 /// One server connection. Heap-allocated: the event stream points into

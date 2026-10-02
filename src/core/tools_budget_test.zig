@@ -1,4 +1,4 @@
-//! Tool pipeline tests for budgets, cancellation and mid-call permission checks.
+//! Tool pipeline tests for budgets, cancellation and result hooks.
 const std = @import("std");
 const proto = @import("proto");
 const plugin = @import("plugin");
@@ -27,7 +27,7 @@ test "progress event is budgeted before entering the event bus" {
     const def: plugin.tool.Tool = .{ .name = "progress", .description = "", .input_schema = "{}", .result_budget = .{ .max_bytes = 128 }, .execute = Large.run };
     var state: std.heap.ArenaAllocator = .init(a);
     defer state.deinit();
-    _ = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{def}, &.{.{ .id = "1", .name = "progress", .arguments = "{}" }}, false, null, null);
+    _ = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{def}, &.{.{ .id = "1", .name = "progress", .arguments = "{}" }}, false, null);
     for (0..3) |_| {
         const frame = (try sub.next(io)).?;
         defer frame.release(a);
@@ -67,7 +67,7 @@ test "oversized validation path is bounded in model outcome and end event" {
     const property = try arena.alloc(u8, 100_000);
     @memset(property, 'x');
     const args = try std.fmt.allocPrint(arena, "{{\"{s}\":1}}", .{property});
-    const outcomes = try execute(arena, a, io, &bus, "s", "/p", &.{def}, &.{.{ .id = "large", .name = "strict", .arguments = args }}, false, null, null);
+    const outcomes = try execute(arena, a, io, &bus, "s", "/p", &.{def}, &.{.{ .id = "large", .name = "strict", .arguments = args }}, false, null);
     const text = outcomes[0].text;
     try std.testing.expect(outcomes[0].is_error);
     try std.testing.expect(text.len <= def.result_budget.max_bytes);
@@ -115,7 +115,7 @@ test "canceled batch keeps finished outcomes and closes the interrupted call" {
     };
     var state: std.heap.ArenaAllocator = .init(a);
     defer state.deinit();
-    const batch = try tools_mod.execute(state.allocator(), a, io, &bus, "s", "/p", defs, calls, false, null, null, .{}, null);
+    const batch = try tools_mod.execute(state.allocator(), a, io, &bus, "s", "/p", defs, calls, false, null, .{}, null);
     try std.testing.expectEqual(error.Canceled, batch.failure.?);
     try std.testing.expectEqual(@as(usize, 3), batch.outcomes.len);
     try std.testing.expectEqualStrings("written", batch.outcomes[0].text);
@@ -144,62 +144,6 @@ test "canceled batch keeps finished outcomes and closes the interrupted call" {
     }
 }
 
-test "a tool re-checks permission mid-call and a refusal denies the call" {
-    const a = std.testing.allocator;
-    const io = std.testing.io;
-    var bus: Bus = .init(a, io);
-    defer bus.deinit();
-    const Parts = struct {
-        fn check(_: ?*anyopaque, _: Allocator, _: Io, _: []const u8, _: plugin.tool.Tool, args: *std.json.Value, _: Call) !tools_mod.Verdict {
-            return if (std.mem.startsWith(u8, args.object.get("url").?.string, "http://denied")) .deny else .allow;
-        }
-        fn fetch(_: ?*anyopaque, arena: Allocator, _: Io, _: []const u8, _: std.json.Value, host: plugin.tool.ProgressSink) !plugin.tool.Result {
-            var hop: std.json.ObjectMap = .empty;
-            try hop.put(arena, "url", .{ .string = "http://allowed.test/next" });
-            if (!try host.permit(.{ .object = hop })) return error.UnexpectedDenial;
-            try hop.put(arena, "url", .{ .string = "http://denied.test/secret" });
-            if (!try host.permit(.{ .object = hop })) return error.PermissionDenied;
-            return .{ .text = "fetched the denied host" };
-        }
-    };
-    const tool: plugin.tool.Tool = .{ .name = "fetch", .description = "", .input_schema = "{}", .execute = Parts.fetch };
-    var state: std.heap.ArenaAllocator = .init(a);
-    defer state.deinit();
-    const outcomes = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{.{ .id = "id", .name = "fetch", .arguments = "{\"url\":\"http://allowed.test\"}" }}, false, .{ .ctx = null, .check = Parts.check }, null);
-    try std.testing.expect(outcomes[0].denied and outcomes[0].is_error);
-    try std.testing.expectEqualStrings("Tool execution denied by permission policy.", outcomes[0].text);
-}
-
-test "a mid-call approval that rewrites the arguments is a refusal" {
-    const a = std.testing.allocator;
-    const io = std.testing.io;
-    var bus: Bus = .init(a, io);
-    defer bus.deinit();
-    const Parts = struct {
-        var calls: usize = 0;
-        fn check(_: ?*anyopaque, arena: Allocator, _: Io, _: []const u8, _: plugin.tool.Tool, args: *std.json.Value, _: Call) !tools_mod.Verdict {
-            calls += 1;
-            // The upfront check passes as is; the mid-call one is rewritten.
-            if (calls == 1) return .allow;
-            var safe: std.json.ObjectMap = .empty;
-            try safe.put(arena, "url", .{ .string = "http://safe.test" });
-            args.* = .{ .object = safe };
-            return .allow;
-        }
-        fn fetch(_: ?*anyopaque, arena: Allocator, _: Io, _: []const u8, _: std.json.Value, host: plugin.tool.ProgressSink) !plugin.tool.Result {
-            var hop: std.json.ObjectMap = .empty;
-            try hop.put(arena, "url", .{ .string = "http://elsewhere.test" });
-            if (!try host.permit(.{ .object = hop })) return error.PermissionDenied;
-            return .{ .text = "followed the original redirect" };
-        }
-    };
-    const tool: plugin.tool.Tool = .{ .name = "fetch", .description = "", .input_schema = "{}", .execute = Parts.fetch };
-    var state: std.heap.ArenaAllocator = .init(a);
-    defer state.deinit();
-    const outcomes = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{.{ .id = "id", .name = "fetch", .arguments = "{\"url\":\"http://start.test\"}" }}, false, .{ .ctx = null, .check = Parts.check }, null);
-    try std.testing.expect(outcomes[0].denied);
-}
-
 test "a failing tool's error result goes through tool_post" {
     const a = std.testing.allocator;
     const io = std.testing.io;
@@ -218,7 +162,7 @@ test "a failing tool's error result goes through tool_post" {
     var state: std.heap.ArenaAllocator = .init(a);
     defer state.deinit();
     const hooks: @import("hooks.zig").Hooks = .{ .list = &.{.{ .plugin = "t", .value = .{ .point = .{ .tool_post = Parts.post } } }} };
-    const batch = try tools_mod.execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{.{ .id = "id", .name = "broken", .arguments = "{}" }}, false, null, null, hooks, null);
+    const batch = try tools_mod.execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{.{ .id = "id", .name = "broken", .arguments = "{}" }}, false, null, hooks, null);
     try std.testing.expect(batch.outcomes[0].is_error);
     try std.testing.expectEqualStrings("Tool 'broken' failed: FileNotFound (seen by hook)", batch.outcomes[0].text);
 }
@@ -232,7 +176,7 @@ test "unknown tool error uses the default budget" {
     defer state.deinit();
     const name = try state.allocator().alloc(u8, 60 * 1024);
     @memset(name, 'q');
-    const results = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{}, &.{.{ .id = "missing", .name = name, .arguments = "{}" }}, false, null, null);
+    const results = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{}, &.{.{ .id = "missing", .name = name, .arguments = "{}" }}, false, null);
     try std.testing.expect(results[0].is_error);
     try std.testing.expectEqual(@as(usize, 50 * 1024), results[0].text.len);
     try std.testing.expect(std.mem.endsWith(u8, results[0].text, budget.notice));
@@ -259,7 +203,7 @@ test "a tool that checks its own arguments gets any object, whatever its schema 
     const outcomes = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{
         .{ .id = "ok", .name = "remote", .arguments = "{\"kind\":\"a\"}" },
         .{ .id = "bad", .name = "remote", .arguments = "[1]" },
-    }, false, null, null);
+    }, false, null);
     try std.testing.expectEqualStrings("kind=a", outcomes[0].text);
     try std.testing.expectEqualStrings("Invalid tool arguments: expected an object", outcomes[1].text);
 }

@@ -16,21 +16,19 @@ fn unused(_: ?*anyopaque, _: Allocator, _: Io, _: []const u8, _: std.json.Value,
     return error.NotCalled;
 }
 
-/// Records which tool the permission gate saw.
+/// Records which tool the tool_pre hooks saw.
 const Gate = struct {
     seen: [4][]const u8 = undefined,
-    calls: [4][]const u8 = undefined,
     count: usize = 0,
-    fn check(ctx: ?*anyopaque, _: Allocator, _: Io, _: []const u8, tool: plugin.tool.Tool, _: *std.json.Value, call: Call) anyerror!tools_mod.Verdict {
+    fn pre(ctx: ?*anyopaque, _: Allocator, _: Io, _: plugin.hook.Scope, call: plugin.hook.Call) anyerror!plugin.hook.ToolPre {
         const g: *Gate = @ptrCast(@alignCast(ctx.?));
-        g.seen[g.count] = tool.name;
-        g.calls[g.count] = call.name;
+        g.seen[g.count] = call.name;
         g.count += 1;
-        return .allow;
+        return .@"continue";
     }
 };
 
-test "a dispatch call runs the deferred tool through its own schema and permission" {
+test "a dispatch call runs the deferred tool through its own schema and hooks" {
     const a = std.testing.allocator;
     const io = std.testing.io;
     var bus: Bus = .init(a, io);
@@ -46,19 +44,19 @@ test "a dispatch call runs the deferred tool through its own schema and permissi
         .{ .id = "3", .name = "call", .arguments = "{\"name\":\"visible\",\"arguments\":{\"text\":\"x\"}}" },
     };
     var gate: Gate = .{};
+    const hooks = [_]plugin.Registry.Resolved(plugin.hook.Hook){.{ .plugin = "test", .value = .{ .ctx = &gate, .point = .{ .tool_pre = Gate.pre } } }};
     var arena: std.heap.ArenaAllocator = .init(a);
     defer arena.deinit();
-    const batch = try tools_mod.execute(arena.allocator(), a, io, &bus, "s", "/p", tools, calls, false, .{ .ctx = &gate, .check = Gate.check }, null, .{}, null);
+    const batch = try tools_mod.execute(arena.allocator(), a, io, &bus, "s", "/p", tools, calls, false, null, .{ .list = &hooks }, null);
     const out = batch.outcomes;
     try std.testing.expectEqualStrings("echo hi", out[0].text);
     try std.testing.expect(!out[0].is_error);
     try std.testing.expect(std.mem.startsWith(u8, out[1].text, "Invalid arguments for 'hidden_echo'"));
     // Only deferred tools are reached this way.
     try std.testing.expectEqualStrings("No tool 'visible' to call this way; search for one first.", out[2].text);
+    // Hooks see the call by the target's name.
     try std.testing.expectEqual(@as(usize, 1), gate.count);
     try std.testing.expectEqualStrings("hidden_echo", gate.seen[0]);
-    // Permission hooks match on the call's name: the target's.
-    try std.testing.expectEqualStrings("hidden_echo", gate.calls[0]);
 }
 
 /// Records what hooks and tools saw, in order.
@@ -121,7 +119,7 @@ test "hooks see the deferred tool's name, and a sequential target is a barrier" 
     } };
     var arena: std.heap.ArenaAllocator = .init(a);
     defer arena.deinit();
-    const batch = try tools_mod.execute(arena.allocator(), a, io, &bus, "s", "/p", tools, calls, false, null, null, hooks, null);
+    const batch = try tools_mod.execute(arena.allocator(), a, io, &bus, "s", "/p", tools, calls, false, null, hooks, null);
     for (batch.outcomes) |o| try std.testing.expect(!o.is_error);
     try std.testing.expect(Log.index("pre hidden_echo") < Log.index("start seq"));
     try std.testing.expect(Log.index("end seq") < Log.index("post hidden_echo"));

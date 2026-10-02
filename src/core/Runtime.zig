@@ -15,20 +15,17 @@ const Delivery = @import("inbox.zig").Delivery;
 const Loop = @import("loop.zig").Loop;
 const config = @import("config.zig");
 const prompt_mod = @import("prompt.zig");
-const permissions = @import("permissions.zig");
 const types = proto.event.types;
 
 pub const Snapshot = struct {
     /// Subscribe first; discard frames with seq <= revision. `inbox` includes
     /// leased inputs until persisted; `inflight` folds all prior deltas.
-    /// session.inbox.updated replaces the inbox and permission.resolved
-    /// removes pending asks in later frames.
+    /// session.inbox.updated replaces the inbox in later frames.
     revision: u64,
     info: @import("session.zig").Info,
     options: config.Options,
     running: bool,
     inbox: []const @import("inbox.zig").Item,
-    pendingPermissions: []const permissions.Broker.PendingInfo,
     messages: []const proto.Message,
     /// Current assistant draft, including every delta through `revision`.
     /// Null when no message is streaming. Arena-owned like `messages`.
@@ -59,10 +56,9 @@ state_dir: ?[]const u8 = null,
 ids: proto.id.Generator = .{},
 mutex: Io.Mutex = .init,
 sessions: std.StringHashMapUnmanaged(*Entry) = .empty,
-broker: ?permissions.Broker = null,
 /// Questions plugins ask the user; made on first use (it keeps a pointer
 /// to `ids`, so not before the runtime has its place).
-asks: ?@import("elicitation.zig").Asks = null,
+asks: ?@import("questions.zig").Asks = null,
 resources: ?Resources = null,
 
 pub const Entry = struct {
@@ -128,7 +124,6 @@ pub fn deinit(rt: *Runtime) void {
     var it = rt.sessions.valueIterator();
     while (it.next()) |e| {
         e.*.inbox.deinit();
-        if (rt.broker) |*broker| broker.clearSession(e.*.session.info.id);
         if (e.*.overrides.profile) |profile| rt.gpa.free(profile);
         if (e.*.overrides.model) |model| rt.gpa.free(model);
         if (e.*.overrides.environment) |current| {
@@ -139,7 +134,6 @@ pub fn deinit(rt: *Runtime) void {
         e.*.session.destroy(rt.gpa, rt.io);
         rt.gpa.destroy(e.*);
     }
-    if (rt.broker) |*broker| broker.deinit();
     if (rt.asks) |*asks| asks.deinit();
     rt.sessions.deinit(rt.gpa);
 }
@@ -148,11 +142,10 @@ pub const createSession = @import("runtime_create.zig").createSession;
 pub const createSessionWithOptions = @import("runtime_create.zig").createSessionWithOptions;
 pub const createSessionWithOptionsOwned = @import("runtime_create.zig").createSessionWithOptionsOwned;
 pub const fork = @import("runtime_create.zig").forkSession;
-pub const replyPermission = @import("runtime_create.zig").replyPermission;
-pub const disconnectPermissions = @import("runtime_create.zig").disconnectPermissions;
+pub const disconnectQuestions = @import("runtime_create.zig").disconnectQuestions;
 pub const asker = @import("runtime_asks.zig").asker;
-pub const replyElicitation = @import("runtime_asks.zig").reply;
-pub const elicitations = @import("runtime_asks.zig").list;
+pub const replyQuestion = @import("runtime_asks.zig").reply;
+pub const questions = @import("runtime_asks.zig").list;
 
 pub const restore = @import("runtime_restore.zig").restore;
 pub const move = @import("session_move.zig").move;
@@ -288,16 +281,6 @@ fn runOnce(rt: *Runtime, entry: *Entry) !void {
     var offered: std.ArrayList(plugin.provider.ToolDecl) = .empty;
     for (view.tools) |tool| if (!tool.deferred) try offered.append(arena, tool.declaration());
     const declarations = offered.items;
-    rt.mutex.lockUncancelable(rt.io);
-    if (rt.broker == null) {
-        rt.broker = permissions.Broker.init(rt.gpa, rt.io, rt.bus, &rt.ids);
-        rt.broker.?.state_mutex = &rt.mutex;
-    }
-    rt.mutex.unlock(rt.io);
-    var gate: Gate = .{ .rt = rt, .entry = entry, .rules = cfg.permission, .timeout_ms = cfg.tool_timeout_ms, .hooks = .{
-        .list = view.registry.hooks,
-        .scope = .{ .session = entry.session.info.id, .location = location, .provider = ref.provider, .model = ref.model },
-    } };
     // Only this worker reads or writes `started`.
     const session_start: ?plugin.hook.SessionSource = if (entry.started) null else if (entry.session.messages.items.len == 0) .startup else .@"resume";
 
@@ -324,8 +307,8 @@ fn runOnce(rt: *Runtime, entry: *Entry) !void {
             .system = view.system,
             .tools = declarations,
             .executable_tools = view.tools,
-            .approval = .{ .ctx = &gate, .check = Gate.check },
             .tool_timeout_ms = cfg.tool_timeout_ms,
+            .asker = rt.asker(),
             .hooks = view.registry.hooks,
             .session_start = session_start,
             .session_started = &entry.started,
@@ -337,8 +320,6 @@ fn runOnce(rt: *Runtime, entry: *Entry) !void {
     };
     try loop.run();
 }
-
-const Gate = @import("runtime_gate.zig").Gate;
 
 /// A failure outside the loop (bad config, …): report it and drop what was
 /// waiting, since retrying would fail the same way.

@@ -109,19 +109,6 @@ fn validateIncoming(patch: Value) !void {
             if (value != .null and value != .object) return error.InvalidConfig;
             continue;
         }
-        if (std.mem.eql(u8, key, "permission")) {
-            if (value == .null) continue;
-            if (value != .array) return error.InvalidConfig;
-            for (value.array.items) |rule| {
-                if (rule != .object) return error.InvalidConfig;
-                var fields = rule.object.iterator();
-                while (fields.next()) |field| {
-                    const name = field.key_ptr.*;
-                    if (!std.mem.eql(u8, name, "action") and !std.mem.eql(u8, name, "pattern") and !std.mem.eql(u8, name, "effect")) return error.InvalidPatch;
-                }
-            }
-            continue;
-        }
         if (!std.mem.eql(u8, key, "provider")) return error.InvalidPatch;
         if (value == .null) continue;
         if (value != .object) return error.InvalidConfig;
@@ -166,16 +153,6 @@ fn validate(root: Value) !void {
             if (v != .string or (@import("proto").thinking.Level.parse(v.string) == null and !deferredModel(v.string))) return error.InvalidConfig;
         } else if (std.mem.eql(u8, k, "tool_timeout_ms")) {
             if (v != .integer or v.integer <= 0) return error.InvalidConfig;
-        } else if (std.mem.eql(u8, k, "permission")) {
-            if (v != .array) return error.InvalidConfig;
-            for (v.array.items) |rule| {
-                if (rule != .object) return error.InvalidConfig;
-                const action = rule.object.get("action") orelse return error.InvalidConfig;
-                const pattern = rule.object.get("pattern") orelse return error.InvalidConfig;
-                const effect = rule.object.get("effect") orelse return error.InvalidConfig;
-                if (action != .string or action.string.len == 0 or pattern != .string or pattern.string.len == 0 or effect != .string) return error.InvalidConfig;
-                if (!std.mem.eql(u8, effect.string, "allow") and !std.mem.eql(u8, effect.string, "deny") and !std.mem.eql(u8, effect.string, "ask")) return error.InvalidConfig;
-            }
         } else if (std.mem.eql(u8, k, "plugin")) {
             if (v != .object) return error.InvalidConfig;
             for (v.object.keys()) |id| if (id.len == 0) return error.InvalidConfig;
@@ -229,8 +206,6 @@ pub fn view(arena: Allocator, c: config.Config) !Value {
     if (c.small_model) |m| try values.put(arena, "small_model", .{ .string = m });
     if (c.thinking) |t| try values.put(arena, "thinking", .{ .string = t });
     try values.put(arena, "tool_timeout_ms", if (c.tool_timeout_ms <= std.math.maxInt(i64)) .{ .integer = @intCast(c.tool_timeout_ms) } else .{ .number_string = try std.fmt.allocPrint(arena, "{d}", .{c.tool_timeout_ms}) });
-    const permissions = try std.json.Stringify.valueAlloc(arena, c.permission, .{});
-    try values.put(arena, "permission", std.json.parseFromSliceLeaky(Value, arena, permissions, .{}) catch unreachable);
     var providers: std.json.ObjectMap = .empty;
     var it = c.provider.map.iterator();
     while (it.next()) |p| {

@@ -12,12 +12,12 @@ These documents ship inside the binary and are extracted to the user data direct
 - [Troubleshooting](troubleshooting.md): diagnostics, logs and common problems
 - [Configuration](configuration.md) and [credentials](credentials.md); copyable [config example](examples/zeta.jsonc)
 - [Supported providers and authentication](providers.md)
-- [Tools](tools.md), [permissions](permissions.md), and [skills](skills.md)
+- [Tools](tools.md), [permissions](permissions.md) (approval through plugins, and the questions plugins ask), and [skills](skills.md)
 - [Prompt templates](commands.md): slash commands from `prompts/*.md`
 - [Compaction](compaction.md): how long sessions are summarized to fit the context window, and `/compact`
-- [Extensions](extensions.md): programs in any language that add tools, commands, hooks and model providers (the protocol, with a Python example in `examples/extensions/`)
+- [Extensions](extensions.md): programs in any language that add tools, commands, hooks and model providers (the protocol, with Python examples in `examples/extensions/`: `hello`, and `permissions`, which asks before tool calls)
 - [MCP servers](mcp.md): tools from local and remote MCP servers
-- [Command hooks](hooks.md): shell commands from `hooks.json` at session start, prompt submit, tool calls, permission asks and stop
+- [Command hooks](hooks.md): shell commands from `hooks.json` at session start, prompt submit, tool calls and stop
 - [HTTP protocol](protocol.md)
 - [Full-screen terminal client](tui.md)
 - [Generated tool/config reference](generated/reference.md) (`zig build docs` writes the complete documentation tree to `zig-out/docs`)

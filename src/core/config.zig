@@ -57,12 +57,6 @@ pub const Compaction = struct {
     keepRecentTokens: u64 = 20_000,
 };
 
-pub const PermissionRule = struct {
-    action: []const u8,
-    pattern: []const u8,
-    effect: enum { allow, deny, ask },
-};
-
 pub const Config = struct {
     model: ?[]const u8 = null,
     small_model: ?[]const u8 = null,
@@ -70,7 +64,6 @@ pub const Config = struct {
     thinking: ?[]const u8 = null,
     tool_timeout_ms: u64 = 120_000,
     inspect_tool: bool = false,
-    permission: []const PermissionRule = &.{},
     provider: std.json.ArrayHashMap(Provider) = .{},
     /// `plugin.<id>`: each plugin's own config, checked against its schema
     /// when it declares one.
@@ -106,7 +99,6 @@ const ParsedConfig = struct {
     thinking: ?[]const u8 = null,
     tool_timeout_ms: u64 = 120_000,
     inspect_tool: bool = false,
-    permission: []const PermissionRule = &.{},
     provider: std.json.ArrayHashMap(Provider) = .{},
     plugin: std.json.ArrayHashMap(std.json.Value) = .{},
     mcp: std.json.Value = .null,
@@ -114,7 +106,7 @@ const ParsedConfig = struct {
     compaction: Compaction = .{},
 };
 
-pub const known_keys = [_][]const u8{ "model", "small_model", "thinking", "tool_timeout_ms", "inspect_tool", "permission", "provider", "plugin", "mcp", "extensions", "compaction" };
+pub const known_keys = [_][]const u8{ "model", "small_model", "thinking", "tool_timeout_ms", "inspect_tool", "provider", "plugin", "mcp", "extensions", "compaction" };
 
 pub fn isKnown(key: []const u8) bool {
     for (known_keys) |known| if (std.mem.eql(u8, key, known)) return true;
@@ -146,7 +138,6 @@ pub fn loadWithOptions(
     var provenance: std.StringHashMapUnmanaged(Source) = .empty;
     try provenance.put(arena, "tool_timeout_ms", .defaults);
     try provenance.put(arena, "inspect_tool", .defaults);
-    try provenance.put(arena, "permission", .defaults);
     const layers = [_]struct { path: []const u8, source: Source }{
         .{ .path = try std.fs.path.join(arena, &.{ config_dir, file_name }), .source = .user },
         .{ .path = try std.fs.path.join(arena, &.{ location, ".zeta", file_name }), .source = .project },
@@ -182,7 +173,7 @@ pub fn loadWithOptions(
         if (!isKnown(top)) try stale.append(arena, key.*);
     }
     for (stale.items) |key| _ = provenance.remove(key);
-    return .{ .model = parsed.model, .small_model = parsed.small_model, .thinking = parsed.thinking, .tool_timeout_ms = parsed.tool_timeout_ms, .inspect_tool = parsed.inspect_tool, .permission = parsed.permission, .provider = parsed.provider, .plugin = parsed.plugin, .mcp = parsed.mcp, .extensions = parsed.extensions, .compaction = parsed.compaction, .provenance = provenance, .unknown = unknown.items };
+    return .{ .model = parsed.model, .small_model = parsed.small_model, .thinking = parsed.thinking, .tool_timeout_ms = parsed.tool_timeout_ms, .inspect_tool = parsed.inspect_tool, .provider = parsed.provider, .plugin = parsed.plugin, .mcp = parsed.mcp, .extensions = parsed.extensions, .compaction = parsed.compaction, .provenance = provenance, .unknown = unknown.items };
 }
 
 fn validProfileName(name: []const u8) bool {

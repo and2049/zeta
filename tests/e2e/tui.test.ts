@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sandbox, zetaBin } from "./harness";
 import { FakeOpenAI } from "./fake-openai";
@@ -126,18 +126,48 @@ test("TUI completes commands and file references without submitting them", async
   expect(await t.quit()).toBe(0);
 }, 15000);
 
-test("TUI permission panel approves a tool while the event feed stays live", async () => {
-  sb.writeConfig({ model: "fake/base", provider: { fake: { options: { baseURL: llm.baseURL } } }, permission: [{ action: "write", pattern: "*", effect: "ask" }] });
+test("TUI answers a plugin's question while the event feed stays live", async () => {
+  mkdirSync(join(sb.project, ".zeta", "extensions"), { recursive: true });
+  cpSync(join(import.meta.dir, "../../docs/examples/extensions/permissions"), join(sb.project, ".zeta", "extensions", "permissions"), { recursive: true });
+  sb.writeConfig({ model: "fake/base", provider: { fake: { options: { baseURL: llm.baseURL } } }, plugin: { permissions: { rules: [{ tool: "write", pattern: "*", effect: "ask" }] } } });
   const t = await start();
   llm.reply({ calls: [{ id: "approval", name: "write", args: { path: "approved.txt", content: "yes" } }] }, { text: "approved result" });
   t.send("write with approval\r");
-  await waitFor(async () => (await state()).pendingPermissions.length === 1, "pending approval");
-  await waitFor(() => t.screen().includes("Allow this?"), "permission panel");
+  await waitFor(() => t.screen().includes("Allow write:") && t.screen().includes("Allow for this session"), "question panel");
   t.send("1");
   await waitFor(() => existsSync(join(sb.project, "approved.txt")), "approved tool execution");
   await waitFor(async () => !(await state()).running, "approval completion");
-  expect((await state()).pendingPermissions).toHaveLength(0);
+  const open = await (await sb.api(`/questions?location=${encodeURIComponent(sb.project)}`)).json();
+  expect(open.questions).toHaveLength(0);
   expect(await t.quit()).toBe(0);
+}, 15000);
+
+test("TUI declines a yes/no question with n and the turn ends", async () => {
+  mkdirSync(join(sb.project, ".zeta"), { recursive: true });
+  writeFileSync(join(sb.project, ".zeta", "hooks.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "bash", hooks: [{ type: "command", command: `echo '{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"Run a command?"}}'` }] }] } }));
+  const t = await start();
+  llm.reply({ calls: [{ id: "ask", name: "bash", args: { command: "touch ran.txt" } }] }, { text: "unreachable" });
+  t.send("run it\r");
+  await waitFor(() => t.screen().includes("Run a command?"), "yes/no question");
+  t.send("n");
+  await waitFor(async () => !(await state()).running, "denied turn");
+  expect(existsSync(join(sb.project, "ran.txt"))).toBe(false);
+  expect(llm.requests).toHaveLength(1);
+  expect(await t.quit()).toBe(0);
+}, 15000);
+
+test("zeta run asks a plugin's question on its terminal", async () => {
+  mkdirSync(join(sb.project, ".zeta"), { recursive: true });
+  writeFileSync(join(sb.project, ".zeta", "hooks.json"), JSON.stringify({ hooks: { PreToolUse: [{ matcher: "write", hooks: [{ type: "command", command: `echo '{"hookSpecificOutput":{"permissionDecision":"ask"}}'` }] }] } }));
+  llm.reply({ calls: [{ id: "w", name: "write", args: { path: "from-run.txt", content: "ok" } }] }, { text: "written" });
+  const t = new Tui(sb, ["run", "write it"]);
+  ui = t;
+  await waitFor(() => t.output.includes("Allow? [y/N]: "), "terminal question");
+  expect(t.output).toContain("Allow this write call?");
+  t.send("y\r");
+  await waitFor(() => t.process.exitCode !== null, "run exit");
+  expect(t.process.exitCode).toBe(0);
+  expect(existsSync(join(sb.project, "from-run.txt"))).toBe(true);
 }, 15000);
 
 test("TUI attaches an image and sends it with the editor text", async () => {

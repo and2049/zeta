@@ -1,5 +1,5 @@
 //! The dock: the editor between two full-width rules, or what replaces the
-//! editor (a picker, a permission question, a sign-in step, help). The top
+//! editor (a picker, a plugin question, a sign-in step, help). The top
 //! rule shows the picker's title; its color follows the thinking level.
 const std = @import("std");
 const App = @import("App.zig");
@@ -20,7 +20,8 @@ pub fn contentRows(app: *const App, registry: *const plugin.Registry, cols: usiz
     return switch (app.overlay) {
         .none => @min(@max(@as(usize, 1), editor_view.rowCount(app.editor.text(), cols)), @max(@as(usize, 5), rows * 3 / 10)),
         .help => helpLines(registry) + 1,
-        .permission, .connect_oauth => 4,
+        .question => if (app.questions.items.items.len > 0) if (registry.questionRenderer(app.questions.items.items[0].question.kind)) |r| r.rows(&app.questions.items.items[0]) else 2 else 2,
+        .connect_oauth => 4,
         .connect_key => 2,
         .models, .thinking, .sessions, .pending, .connect_providers, .connect_methods => @max(@as(usize, 2), @min(app.picker_items.len + 1, @min(@as(usize, 12), rows / 2))),
     };
@@ -35,7 +36,7 @@ pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palett
         while (x < screen.cols) : (x += 1) screen.drawStyledText(x, y, "─", rule);
     }
     const title: []const u8 = switch (app.overlay) {
-        .none, .permission => "",
+        .none, .question => "",
         .help => "Keys",
         .models => "Model",
         .thinking => "Thinking level",
@@ -70,11 +71,9 @@ pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palett
             }
             screen.drawStyledText(1, row, "Type / for commands and @ for files. Esc closes.", .{ .dim = true });
         },
-        .permission => if (app.permission) |p| {
-            screen.drawStyledText(1, y, "Allow this?", .{ .foreground = screen_mod.Color.yellow, .bold = true });
-            screen.drawStyledText(1, y + 1, p.action, .{ .bold = true });
-            screen.drawText(1, y + 2, p.pattern);
-            screen.drawStyledText(1, y + 3, "1 allow once · 2 allow for this session · 3 deny", .{ .dim = true });
+        .question => if (app.questions.items.items.len > 0) {
+            const entry = &app.questions.items.items[0];
+            if (registry.questionRenderer(entry.question.kind)) |r| return r.draw(screen, entry, y, content);
         },
         .connect_key => {
             screen.drawStyledText(1, y, "Paste the key (hidden) · Enter save · Esc cancel", .{ .dim = true });

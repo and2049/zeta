@@ -9,10 +9,22 @@ const Allocator = std.mem.Allocator;
 const Call = proto.message.ToolCall;
 
 /// Runs a batch that is expected to complete.
-pub fn execute(arena: Allocator, gpa: Allocator, io: Io, bus: *Bus, session: []const u8, location: []const u8, tools: []const plugin.tool.Tool, calls: []const Call, truncated: bool, approval: ?tools_mod.Approval, timeout_ms: ?u64) ![]tools_mod.Outcome {
-    const batch = try tools_mod.execute(arena, gpa, io, bus, session, location, tools, calls, truncated, approval, timeout_ms, .{}, null);
+pub fn execute(arena: Allocator, gpa: Allocator, io: Io, bus: *Bus, session: []const u8, location: []const u8, tools: []const plugin.tool.Tool, calls: []const Call, truncated: bool, timeout_ms: ?u64) ![]tools_mod.Outcome {
+    return executeHooked(arena, gpa, io, bus, session, location, tools, calls, truncated, timeout_ms, .{});
+}
+
+pub fn executeHooked(arena: Allocator, gpa: Allocator, io: Io, bus: *Bus, session: []const u8, location: []const u8, tools: []const plugin.tool.Tool, calls: []const Call, truncated: bool, timeout_ms: ?u64, hooks: @import("hooks.zig").Hooks) ![]tools_mod.Outcome {
+    const batch = try tools_mod.execute(arena, gpa, io, bus, session, location, tools, calls, truncated, timeout_ms, hooks, null);
     if (batch.failure) |err| return err;
     return batch.outcomes;
+}
+
+/// A tool_pre hook chain of one function.
+fn preHooks(comptime f: anytype) @import("hooks.zig").Hooks {
+    const list = struct {
+        const items = [_]plugin.Registry.Resolved(plugin.hook.Hook){.{ .plugin = "test", .value = .{ .point = .{ .tool_pre = f } } }};
+    };
+    return .{ .list = &list.items };
 }
 
 const TestTool = struct {
@@ -62,7 +74,7 @@ test "parallel batch, sequential barrier, source ordering, validation and event 
     };
     var arena_state: std.heap.ArenaAllocator = .init(a);
     defer arena_state.deinit();
-    const results = try execute(arena_state.allocator(), a, io, &bus, "session", "/project", tools, calls, false, null, null);
+    const results = try execute(arena_state.allocator(), a, io, &bus, "session", "/project", tools, calls, false, null);
     try std.testing.expectEqual(@as(usize, 6), results.len);
     try std.testing.expect(stub.peak.load(.seq_cst) >= 2);
     try std.testing.expect(stub.barrier_clean.load(.seq_cst));
@@ -100,64 +112,37 @@ test "deadline cancels execution and truncated calls never execute" {
     const calls: []const Call = &.{.{ .id = "1", .name = "slow", .arguments = "{\"slow\":true}" }};
     var state: std.heap.ArenaAllocator = .init(a);
     defer state.deinit();
-    const timed = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{t}, calls, false, null, null);
+    const timed = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{t}, calls, false, null);
     try std.testing.expect(timed[0].is_error);
     try std.testing.expect(std.mem.indexOf(u8, timed[0].text, "Timeout") != null);
     try std.testing.expect(stub.canceled.load(.seq_cst));
     stub.canceled.store(false, .seq_cst);
-    const truncated = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{t}, calls, true, null, null);
+    const truncated = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{t}, calls, true, null);
     try std.testing.expect(truncated[0].is_error);
     try std.testing.expect(std.mem.indexOf(u8, truncated[0].text, "truncated") != null);
     try std.testing.expect(!stub.canceled.load(.seq_cst));
 }
 
-test "approval receives validated arguments and denied tools do not run" {
+test "a tool_pre hook gets validated arguments, and a call it denies does not run" {
     const a = std.testing.allocator;
     const io = std.testing.io;
     var bus: Bus = .init(a, io);
     defer bus.deinit();
     var stub: TestTool = .{};
     const Gate = struct {
-        fn check(_: ?*anyopaque, _: Allocator, _: Io, location: []const u8, tool: plugin.tool.Tool, args: *std.json.Value, call: Call) anyerror!tools_mod.Verdict {
-            try std.testing.expectEqualStrings("/root", location);
-            try std.testing.expectEqualStrings("blocked", tool.name);
+        fn pre(_: ?*anyopaque, _: Allocator, _: Io, _: plugin.hook.Scope, call: plugin.hook.Call) anyerror!plugin.hook.ToolPre {
+            try std.testing.expectEqualStrings("blocked", call.name);
             try std.testing.expectEqualStrings("id", call.id);
-            try std.testing.expect(args.object.get("ok").?.bool);
-            return .deny;
+            try std.testing.expect(call.args.object.get("ok").?.bool);
+            return .{ .deny = "not now" };
         }
     };
     const tool: plugin.tool.Tool = .{ .name = "blocked", .description = "", .input_schema = "{\"type\":\"object\",\"required\":[\"ok\"]}", .ctx = &stub, .execute = TestTool.run };
     var state: std.heap.ArenaAllocator = .init(a);
     defer state.deinit();
-    const outcomes = try execute(state.allocator(), a, io, &bus, "s", "/root", &.{tool}, &.{.{ .id = "id", .name = "blocked", .arguments = "{\"ok\":true}" }}, false, .{ .ctx = null, .check = Gate.check }, null);
+    const outcomes = try executeHooked(state.allocator(), a, io, &bus, "s", "/root", &.{tool}, &.{.{ .id = "id", .name = "blocked", .arguments = "{\"ok\":true}" }}, false, null, preHooks(Gate.pre));
     try std.testing.expect(outcomes[0].denied and outcomes[0].is_error);
-    try std.testing.expectEqual(@as(usize, 0), stub.peak.load(.seq_cst));
-}
-
-test "unanswered approval uses the tool deadline and cancels cleanly" {
-    const a = std.testing.allocator;
-    const io = std.testing.io;
-    var bus: Bus = .init(a, io);
-    defer bus.deinit();
-    var canceled = std.atomic.Value(bool).init(false);
-    const Gate = struct {
-        fn check(ctx: ?*anyopaque, _: Allocator, task_io: Io, _: []const u8, _: plugin.tool.Tool, _: *std.json.Value, _: Call) anyerror!tools_mod.Verdict {
-            const flag: *std.atomic.Value(bool) = @ptrCast(@alignCast(ctx.?));
-            Io.sleep(task_io, .fromMilliseconds(30), .awake) catch |err| {
-                if (err == error.Canceled) flag.store(true, .seq_cst);
-                return err;
-            };
-            return .allow;
-        }
-    };
-    var stub: TestTool = .{};
-    const tool: plugin.tool.Tool = .{ .name = "ask", .description = "", .input_schema = "{}", .timeout_ms = 1, .ctx = &stub, .execute = TestTool.run };
-    var state: std.heap.ArenaAllocator = .init(a);
-    defer state.deinit();
-    const outcomes = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{.{ .id = "id", .name = "ask", .arguments = "{}" }}, false, .{ .ctx = &canceled, .check = Gate.check }, null);
-    try std.testing.expect(outcomes[0].denied);
-    try std.testing.expect(std.mem.indexOf(u8, outcomes[0].text, "Timeout") != null);
-    try std.testing.expect(canceled.load(.seq_cst));
+    try std.testing.expectEqualStrings("not now", outcomes[0].text);
     try std.testing.expectEqual(@as(usize, 0), stub.peak.load(.seq_cst));
 }
 
@@ -171,37 +156,14 @@ test "configured short deadline applies to inherited tool, explicit 120s wins" {
     const calls: []const Call = &.{.{ .id = "1", .name = "wait", .arguments = "{\"slow\":true}" }};
     var state: std.heap.ArenaAllocator = .init(a);
     defer state.deinit();
-    const timed = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{base}, calls, false, null, 1);
+    const timed = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{base}, calls, false, 1);
     try std.testing.expect(timed[0].is_error);
     const overridden = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{blk: {
         var own = base;
         own.timeout_ms = 120_000;
         break :blk own;
-    }}, calls, false, null, 1);
+    }}, calls, false, 1);
     try std.testing.expect(!overridden[0].is_error);
-}
-
-test "approval and execution share one tool deadline" {
-    const a = std.testing.allocator;
-    const io = std.testing.io;
-    var bus: Bus = .init(a, io);
-    defer bus.deinit();
-    const Parts = struct {
-        fn approve(_: ?*anyopaque, _: Allocator, task_io: Io, _: []const u8, _: plugin.tool.Tool, _: *std.json.Value, _: Call) !tools_mod.Verdict {
-            try Io.sleep(task_io, .fromMilliseconds(25), .awake);
-            return .allow;
-        }
-        fn run(_: ?*anyopaque, _: Allocator, task_io: Io, _: []const u8, _: std.json.Value, _: plugin.tool.ProgressSink) !plugin.tool.Result {
-            try Io.sleep(task_io, .fromMilliseconds(25), .awake);
-            return .{ .text = "would succeed with two separate 35ms deadlines" };
-        }
-    };
-    const tool: plugin.tool.Tool = .{ .name = "combined", .description = "", .input_schema = "{}", .execute = Parts.run };
-    var state: std.heap.ArenaAllocator = .init(a);
-    defer state.deinit();
-    const outcomes = try execute(state.allocator(), a, io, &bus, "s", "/p", &.{tool}, &.{.{ .id = "id", .name = "combined", .arguments = "{}" }}, false, .{ .ctx = null, .check = Parts.approve }, 35);
-    try std.testing.expect(outcomes[0].is_error);
-    try std.testing.expect(std.mem.indexOf(u8, outcomes[0].text, "Timeout") != null);
 }
 
 test "parallel denial skips following sequential barrier and still pairs every call" {
@@ -210,8 +172,8 @@ test "parallel denial skips following sequential barrier and still pairs every c
     var bus: Bus = .init(a, io);
     defer bus.deinit();
     const Gate = struct {
-        fn check(_: ?*anyopaque, _: Allocator, _: Io, _: []const u8, _: plugin.tool.Tool, _: *std.json.Value, call: Call) !tools_mod.Verdict {
-            return if (std.mem.eql(u8, call.id, "deny")) .deny else .allow;
+        fn pre(_: ?*anyopaque, _: Allocator, _: Io, _: plugin.hook.Scope, call: plugin.hook.Call) anyerror!plugin.hook.ToolPre {
+            return if (std.mem.eql(u8, call.id, "deny")) .{ .deny = "no" } else .@"continue";
         }
         fn fail(_: ?*anyopaque, _: Allocator, _: Io, _: []const u8, _: std.json.Value, _: plugin.tool.ProgressSink) !plugin.tool.Result {
             return error.UnexpectedExecution;
@@ -236,7 +198,7 @@ test "parallel denial skips following sequential barrier and still pairs every c
     };
     var state: std.heap.ArenaAllocator = .init(a);
     defer state.deinit();
-    const results = try execute(state.allocator(), a, io, &bus, "s", "/p", defs, calls, false, .{ .ctx = null, .check = Gate.check }, null);
+    const results = try executeHooked(state.allocator(), a, io, &bus, "s", "/p", defs, calls, false, null, preHooks(Gate.pre));
     try std.testing.expectEqual(@as(usize, 3), results.len);
     try std.testing.expectEqual(@as(usize, 1), called.load(.seq_cst));
     try std.testing.expect(results[1].denied and results[2].denied);

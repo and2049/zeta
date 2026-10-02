@@ -14,7 +14,6 @@ pub fn tool(ctx: *Context) plugin.tool.Tool {
         .description = "Load the full instructions for a discovered skill by name.",
         .input_schema = "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"],\"additionalProperties\":false}",
         .side_effect = .read,
-        .permission = .{ .target = .value, .arg = "name" },
         .ctx = ctx,
         .execute = execute,
     };

@@ -26,7 +26,7 @@ test "patch validates before atomic replacement, removes layer overrides, and ke
     for ([_][]const u8{
         "{\"tool_timeout_ms\":0}",
         "{\"model\":\"bad\"}",
-        "{\"permission\":[{\"action\":\"read\",\"pattern\":\"*\",\"effect\":\"oops\"}]}",
+        "{\"extensions\":[{\"command\":[]}]}",
         "{\"provider\":{\"p\":{\"options\":{\"apiKey\":42}}}}",
     }) |bad| {
         const parsed = try std.json.parseFromSliceLeaky(Value, a, bad, .{});
@@ -78,17 +78,17 @@ test "new nested objects discard nulls and arrays replace, not merge" {
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const base = buf[0..try tmp.dir.realPath(io, &buf)];
     const path = try pathFor(a, .user, base, base);
-    const patch = try std.json.parseFromSliceLeaky(Value, a, "{\"provider\":{\"new\":{\"models\":{\"m\":{\"name\":\"ok\",\"token\":null}},\"options\":{\"apiKey\":null,\"baseURL\":\"https://example.org\"}}},\"permission\":[{\"action\":\"read\",\"pattern\":\"*\",\"effect\":\"deny\"}]}", .{});
+    const patch = try std.json.parseFromSliceLeaky(Value, a, "{\"provider\":{\"new\":{\"models\":{\"m\":{\"name\":\"ok\",\"token\":null}},\"options\":{\"apiKey\":null,\"baseURL\":\"https://example.org\"}}},\"extensions\":[{\"command\":[\"x\"]}]}", .{});
     try patchFile(a, io, path, patch);
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, a, .limited(max_file));
     const saved = try std.json.parseFromSliceLeaky(Value, a, bytes, .{});
     const provider = saved.object.get("provider").?.object.get("new").?.object;
     try std.testing.expect(provider.get("options").?.object.get("apiKey") == null);
     try std.testing.expect(provider.get("models").?.object.get("m").?.object.get("token") == null);
-    const replacement = try std.json.parseFromSliceLeaky(Value, a, "{\"permission\":[]}", .{});
+    const replacement = try std.json.parseFromSliceLeaky(Value, a, "{\"extensions\":[]}", .{});
     try patchFile(a, io, path, replacement);
     const next = try std.json.parseFromSliceLeaky(Value, a, try Io.Dir.cwd().readFileAlloc(io, path, a, .limited(max_file)), .{});
-    try std.testing.expectEqual(@as(usize, 0), next.object.get("permission").?.array.items.len);
+    try std.testing.expectEqual(@as(usize, 0), next.object.get("extensions").?.array.items.len);
 }
 
 test "unsupported incoming nested fields fail without changing existing compatible fields" {
@@ -104,7 +104,6 @@ test "unsupported incoming nested fields fail without changing existing compatib
     const original = "{\"model\":\"{env:MODEL}\",\"provider\":{\"p\":{\"options\":{\"baseURL\":\"https://example.org\",\"futureOption\":12},\"futureProvider\":true}},\"unrelated\":42}";
     try tmp.dir.writeFile(io, .{ .sub_path = config.file_name, .data = original });
     for ([_][]const u8{
-        "{\"permission\":[{\"action\":\"read\",\"pattern\":\"*\",\"effect\":\"allow\",\"future\":1}]}",
         "{\"provider\":{\"p\":{\"options\":{\"futureOption\":true}}}}",
         "{\"provider\":{\"p\":{\"futureProvider\":true}}}",
     }) |text| {

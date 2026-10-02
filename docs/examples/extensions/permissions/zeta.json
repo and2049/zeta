@@ -1,0 +1,1 @@
+{"name": "permissions", "command": ["python3", "permissions.py"], "description": "Example extension: ask before tool calls, by rules and for files outside the project"}

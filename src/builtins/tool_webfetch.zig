@@ -11,19 +11,19 @@ pub const tool: plugin.tool.Tool = .{
     .description = "Fetch an HTTP(S) URL and return readable text (HTML converted to Markdown).",
     .input_schema = "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"],\"additionalProperties\":false}",
     .side_effect = .network,
-    .permission = .{ .target = .url, .arg = "url" },
     .execute = execute,
 };
 
-fn execute(_: ?*anyopaque, arena: std.mem.Allocator, io: std.Io, _: []const u8, args: std.json.Value, host: plugin.tool.ProgressSink) anyerror!plugin.tool.Result {
+fn execute(_: ?*anyopaque, arena: std.mem.Allocator, io: std.Io, _: []const u8, args: std.json.Value, _: plugin.tool.ProgressSink) anyerror!plugin.tool.Result {
     if (args != .object) return .{ .text = "Expected URL", .isError = true };
     const url = args.object.get("url") orelse return .{ .text = "Expected URL", .isError = true };
     if (url != .string or !isHttp(url.string)) return .{ .text = "Only HTTP(S) URLs are supported", .isError = true };
     var uri = std.Uri.parse(url.string) catch return .{ .text = "Invalid URL", .isError = true };
     var client: std.http.Client = .{ .allocator = arena, .io = io };
     defer client.deinit();
-    // Redirects are followed here rather than by std.http, so that every hop
-    // passes the same permission check as the requested URL.
+    // Redirects are followed here rather than by std.http: only within the
+    // same host. Another host is the model's next call, so hooks that look
+    // at fetched URLs see it.
     var hops: usize = 0;
     while (true) {
         var req = try client.request(.GET, uri, .{ .keep_alive = false, .redirect_behavior = .unhandled });
@@ -38,14 +38,23 @@ fn execute(_: ?*anyopaque, arena: std.mem.Allocator, io: std.Io, _: []const u8, 
             const next = redirect(arena, uri, location) catch return .{ .text = "Invalid redirect location", .isError = true };
             const target = try std.fmt.allocPrint(arena, "{f}", .{next.fmt(.{ .scheme = true, .authority = true, .path = true, .query = true })});
             if (!isHttp(target)) return .{ .text = "Only HTTP(S) URLs are supported", .isError = true };
-            var hop_args: std.json.ObjectMap = .empty;
-            try hop_args.put(arena, "url", .{ .string = target });
-            if (!try host.permit(.{ .object = hop_args })) return error.PermissionDenied;
+            if (!sameHost(uri, next)) return .{ .text = try std.fmt.allocPrint(arena, "Redirected to another host: {s}\nFetch that URL to follow the redirect.", .{target}) };
             uri = next;
             continue;
         }
         return read(arena, &response);
     }
+}
+
+/// Same host name and port; the scheme may change (http to https).
+fn sameHost(a: std.Uri, b: std.Uri) bool {
+    const left = a.host orelse return false;
+    const right = b.host orelse return false;
+    var left_buf: [std.Io.net.HostName.max_len]u8 = undefined;
+    var right_buf: [std.Io.net.HostName.max_len]u8 = undefined;
+    const l = left.toRaw(&left_buf) catch return false;
+    const r = right.toRaw(&right_buf) catch return false;
+    return std.ascii.eqlIgnoreCase(l, r) and a.port == b.port;
 }
 
 fn isHttp(url: []const u8) bool {
@@ -102,4 +111,11 @@ test "relative and absolute redirect locations resolve against the current URL" 
     try std.testing.expectEqualStrings("http://a.test/moved", try std.fmt.allocPrint(a, "{f}", .{relative.fmt(flags)}));
     const absolute = try redirect(a, base, "https://b.test/x");
     try std.testing.expectEqualStrings("https://b.test/x", try std.fmt.allocPrint(a, "{f}", .{absolute.fmt(flags)}));
+}
+
+test "redirects stay on the same host" {
+    const a = try std.Uri.parse("http://Docs.test/a");
+    try std.testing.expect(sameHost(a, try std.Uri.parse("https://docs.test/b")));
+    try std.testing.expect(!sameHost(a, try std.Uri.parse("http://docs.test:8080/b")));
+    try std.testing.expect(!sameHost(a, try std.Uri.parse("http://evil.test/a")));
 }

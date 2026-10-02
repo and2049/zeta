@@ -7,11 +7,10 @@ import { Sandbox, jsonEvents } from "./harness";
 let sb: Sandbox;
 let llm: FakeOpenAI;
 
-function config(permission: Array<{ action: string; pattern: string; effect: string }> = []) {
+function config() {
   sb.writeConfig({
     model: "fake/test-model",
     provider: { fake: { options: { baseURL: llm.baseURL } } },
-    permission,
   });
 }
 
@@ -79,38 +78,49 @@ describe("command hooks", () => {
     expect(jsonEvents(result.stdout).find((e) => e.type === "prompt.blocked")?.data).toMatchObject({ reason: "no secrets" });
   });
 
-  test("PermissionRequest answers what rules would ask: allow runs, deny refuses with a reason", async () => {
-    config([{ action: "*", pattern: "*", effect: "ask" }]);
+  test("PreToolUse ask without a terminal: zeta run declines, the call is refused and the turn ends", async () => {
     hooks(join(sb.env.XDG_CONFIG_HOME, "zeta"), {
-      PermissionRequest: [
-        { matcher: "Write", command: `echo '{"hookSpecificOutput":{"decision":{"behavior":"allow","updatedInput":{"path":"hooked.txt","content":"from hook"}}}}'` },
-        { matcher: "bash", command: `echo '{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"no shell today"}}}'` },
-      ],
+      PreToolUse: [{ matcher: "bash", command: `echo '{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"Run a shell command?"}}'` }],
     });
-    llm.reply(
-      { calls: [{ id: "w", name: "write", args: { path: "model.txt", content: "from model" } }, { id: "b", name: "bash", args: { command: "true" } }] },
-      { text: "Done." },
-    );
-    const result = await sb.zeta(["run", "--json", "write it"]);
-    expect(result.code).toBe(0);
-    expect(existsSync(join(sb.project, "model.txt"))).toBe(false);
-    expect(await Bun.file(join(sb.project, "hooked.txt")).text()).toBe("from hook");
-    const results = llm.requests[1].messages.filter((m: { role: string }) => m.role === "tool");
-    expect(results.find((m: { tool_call_id: string }) => m.tool_call_id === "b").content).toBe("no shell today");
-    expect(jsonEvents(result.stdout).some((e) => e.type === "permission.asked")).toBe(false);
+    llm.reply({ calls: [{ id: "b", name: "bash", args: { command: "touch ran.txt" } }] }, { text: "unreachable" });
+    const result = await sb.zeta(["run", "--json", "run it"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("asked: Run a shell command? (declined: no terminal to answer on)");
+    expect(existsSync(join(sb.project, "ran.txt"))).toBe(false);
+    expect(sb.sessionMessages().find((m) => m.role === "tool_result")?.content[0].text).toBe("The user did not allow this bash call.");
+    expect(llm.requests.length).toBe(1);
   });
 
-  test("arguments a permission hook rewrites are checked against the rules again", async () => {
-    config([{ action: "*", pattern: "*", effect: "ask" }, { action: "write", pattern: "*secret*", effect: "deny" }]);
+  test("PreToolUse ask puts a yes/no question to clients; yes runs the call", async () => {
     hooks(join(sb.project, ".zeta"), {
-      PermissionRequest: [{ matcher: "write", command: `echo '{"hookSpecificOutput":{"decision":{"behavior":"allow","updatedInput":{"path":"secret.txt","content":"x"}}}}'` }],
+      PreToolUse: [{ matcher: "write", command: `echo '{"hookSpecificOutput":{"permissionDecision":"ask"}}'` }],
+      PermissionRequest: [{ command: "true" }],
     });
-    llm.reply({ calls: [{ id: "w", name: "write", args: { path: "notes.txt", content: "x" } }] }, { text: "unreachable" });
-    const result = await sb.zeta(["run", "--json", "write"]);
-    expect(existsSync(join(sb.project, "secret.txt"))).toBe(false);
-    expect(existsSync(join(sb.project, "notes.txt"))).toBe(false);
-    expect(sb.sessionMessages().find((m) => m.role === "tool_result")?.content[0].text).toBe("Tool execution denied by permission policy.");
-    expect(result.code).toBe(1);
+    llm.reply({ text: "ready" });
+    expect((await sb.zeta(["run", "start"])).code).toBe(0);
+    const events = await sb.api("/event");
+    const reader = events.body!.getReader();
+    try {
+      const session = (await (await sb.api("/sessions", "POST", { location: sb.project })).json()).id;
+      llm.reply({ calls: [{ id: "w", name: "write", args: { path: "yes.txt", content: "ok" } }] }, { text: "done" });
+      expect((await sb.api(`/sessions/${session}/prompt`, "POST", { text: "write" })).status).toBe(200);
+      let open: Array<{ id: string; kind: string; message: string; detail: string; session: string; source: string }> = [];
+      for (let i = 0; i < 200 && open.length === 0; i++) {
+        open = (await (await sb.api(`/questions?location=${encodeURIComponent(sb.project)}`)).json()).questions;
+        if (open.length === 0) await Bun.sleep(25);
+      }
+      expect(open).toHaveLength(1);
+      expect(open[0]).toMatchObject({ kind: "confirm", message: "Allow this write call?", session, source: `hooks:${join(sb.project, ".zeta", "hooks.json")}` });
+      expect(open[0].detail).toContain('"path":"yes.txt"');
+      expect((await sb.api(`/questions/${open[0].id}/reply`, "POST", { action: "accept" })).status).toBe(200);
+      for (let i = 0; i < 200 && !existsSync(join(sb.project, "yes.txt")); i++) await Bun.sleep(25);
+      expect(existsSync(join(sb.project, "yes.txt"))).toBe(true);
+      // The old event is skipped with a diagnostic.
+      const registry = await (await sb.api(`/registry?location=${encodeURIComponent(sb.project)}`)).json();
+      expect(registry.diagnostics.some((d: string) => d.includes("PermissionRequest"))).toBe(true);
+    } finally {
+      await reader.cancel();
+    }
   });
 
   test("PostToolUseFailure sees a tool that failed", async () => {

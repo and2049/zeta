@@ -108,17 +108,6 @@ pub const State = struct {
         const t = e.type;
         if (eq(t, proto.event.types.session_inbox_updated)) {
             v.inbox = try std.json.parseFromValueLeaky([]const api.Inbox, a, data.get("inbox") orelse return, .{ .ignore_unknown_fields = true });
-        } else if (eq(t, proto.event.types.permission_asked)) {
-            const p = try std.json.parseFromValueLeaky(api.Permission, a, e.data, .{ .ignore_unknown_fields = true });
-            var list: std.ArrayList(api.Permission) = .empty;
-            for (v.pendingPermissions) |old| if (!eq(old.id, p.id)) try list.append(a, old);
-            try list.append(a, p);
-            v.pendingPermissions = list.items;
-        } else if (eq(t, proto.event.types.permission_resolved)) {
-            const id = string(data, "id") orelse return;
-            var list: std.ArrayList(api.Permission) = .empty;
-            for (v.pendingPermissions) |p| if (!eq(p.id, id)) try list.append(a, p);
-            v.pendingPermissions = list.items;
         } else if (eq(t, proto.event.types.message_start) or eq(t, proto.event.types.message_end)) {
             const m = try proto.Message.parse(a, data.get("message") orelse return);
             if (eq(t, proto.event.types.message_start) and m.role == .assistant) {
@@ -232,7 +221,7 @@ test "hydrate replays only newer frames and isolates session switch" {
         \\{"seq":8,"type":"message.end","session":"two","time":1,"data":{}}
     );
     try s.hydrate(
-        \\{"revision":6,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"pendingPermissions":[],"messages":[],"inflight":{"id":"m","role":"assistant","content":[{"type":"text","text":"hi"}],"timestamp":1},"nextBefore":null}
+        \\{"revision":6,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"messages":[],"inflight":{"id":"m","role":"assistant","content":[{"type":"text","text":"hi"}],"timestamp":1},"nextBefore":null}
     );
     try std.testing.expectEqualStrings("hi!", s.snapshot.?.inflight.?.content[0].text);
     try std.testing.expectEqual(@as(u64, 7), s.seq);
@@ -241,12 +230,12 @@ test "hydrate replays only newer frames and isolates session switch" {
     try std.testing.expectEqual(@as(usize, 0), s.pending.items.len);
 }
 
-test "page merge deduplicates overlap and permission resolution" {
+test "page merge deduplicates overlap" {
     var s = State.init(std.testing.allocator);
     defer s.deinit();
     try s.select("one");
     try s.hydrate(
-        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":false,"inbox":[],"pendingPermissions":[],"messages":[{"id":"new","role":"user","content":[],"timestamp":3}],"inflight":null,"nextBefore":"new"}
+        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":false,"inbox":[],"messages":[{"id":"new","role":"user","content":[],"timestamp":3}],"inflight":null,"nextBefore":"new"}
     );
     const a = s.arena.allocator();
     try s.mergePage(.{ .messages = &.{
@@ -255,14 +244,6 @@ test "page merge deduplicates overlap and permission resolution" {
     }, .nextBefore = null });
     try std.testing.expectEqual(@as(usize, 2), s.snapshot.?.messages.len);
     try std.testing.expectEqualStrings("old", s.snapshot.?.messages[0].id);
-    try s.enqueue(
-        \\{"seq":2,"type":"permission.asked","session":"one","time":1,"data":{"id":"p","action":"read","pattern":"*","expiresAt":10}}
-    );
-    try std.testing.expectEqual(@as(usize, 1), s.snapshot.?.pendingPermissions.len);
-    try s.enqueue(
-        \\{"seq":3,"type":"permission.resolved","session":"one","time":1,"data":{"id":"p"}}
-    );
-    try std.testing.expectEqual(@as(usize, 0), s.snapshot.?.pendingPermissions.len);
     _ = a;
 }
 
@@ -271,7 +252,7 @@ test "hydration and inbox updates retain images and message file changes" {
     defer s.deinit();
     try s.select("one");
     try s.hydrate(
-        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[{"id":"q","text":"show","delivery":"queue","images":[{"mimeType":"image/png","data":"YWJj"}]}],"pendingPermissions":[],"messages":[{"id":"m","role":"assistant","content":[{"type":"image","mimeType":"image/png","data":"YWJj"}],"timestamp":1,"changes":[{"path":"file","before":"a","after":"b"}]}],"inflight":null,"nextBefore":null}
+        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[{"id":"q","text":"show","delivery":"queue","images":[{"mimeType":"image/png","data":"YWJj"}]}],"messages":[{"id":"m","role":"assistant","content":[{"type":"image","mimeType":"image/png","data":"YWJj"}],"timestamp":1,"changes":[{"path":"file","before":"a","after":"b"}]}],"inflight":null,"nextBefore":null}
     );
     try std.testing.expectEqualStrings("YWJj", s.snapshot.?.inbox[0].images[0].data);
     try std.testing.expectEqualStrings("b", s.snapshot.?.messages[0].changes[0].after);
@@ -288,7 +269,7 @@ test "tool call deltas extend an inflight draft" {
     defer s.deinit();
     try s.select("one");
     try s.hydrate(
-        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"pendingPermissions":[],"messages":[],"inflight":{"id":"m","role":"assistant","content":[],"timestamp":1},"nextBefore":null}
+        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"messages":[],"inflight":{"id":"m","role":"assistant","content":[],"timestamp":1},"nextBefore":null}
     );
     try s.enqueue(
         \\{"seq":2,"type":"message.part.delta","session":"one","time":1,"data":{"messageId":"m","index":0,"kind":"toolCall","delta":"read"}}
@@ -305,7 +286,7 @@ test "session.updated changes metadata without touching history or draft" {
     defer s.deinit();
     try s.select("one");
     try s.hydrate(
-        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"pendingPermissions":[],"messages":[{"id":"old","role":"user","content":[],"timestamp":1}],"inflight":{"id":"m","role":"assistant","content":[{"type":"text","text":"partial"}],"timestamp":2},"nextBefore":"old"}
+        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"messages":[{"id":"old","role":"user","content":[],"timestamp":1}],"inflight":{"id":"m","role":"assistant","content":[{"type":"text","text":"partial"}],"timestamp":2},"nextBefore":"old"}
     );
     try s.enqueue(
         \\{"seq":2,"type":"session.updated","session":"one","time":2,"data":{"session":{"id":"one","location":"/a","created":1,"title":"Hello"},"model":"fake/new","thinking":"high"}}
@@ -328,7 +309,7 @@ test "thousands of streamed tokens retain linear draft storage" {
     defer s.deinit();
     try s.select("one");
     try s.hydrate(
-        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"pendingPermissions":[],"messages":[],"inflight":{"id":"m","role":"assistant","content":[],"timestamp":1},"nextBefore":null}
+        \\{"revision":1,"info":{"id":"one","location":"/a","created":1},"options":{},"running":true,"inbox":[],"messages":[],"inflight":{"id":"m","role":"assistant","content":[],"timestamp":1},"nextBefore":null}
     );
     for (0..6000) |i| {
         const frame = try std.fmt.allocPrint(std.testing.allocator, "{{\"seq\":{d},\"type\":\"message.part.delta\",\"session\":\"one\",\"time\":1,\"data\":{{\"messageId\":\"m\",\"index\":0,\"kind\":\"text\",\"delta\":\"word\"}}}}", .{i + 2});

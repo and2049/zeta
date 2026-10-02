@@ -165,7 +165,7 @@ test "a run that ends on tool calls failed; its denial is reported" {
     var f: Follower = .{ .gpa = a, .stdout = &out.writer, .stderr = &err.writer, .json = false, .prompt_id = "u" };
     defer f.deinit();
     try f.ended(.{ .id = "a", .role = .assistant, .timestamp = 0, .content = &.{.{ .tool_call = .{ .id = "c", .name = "write", .arguments = "{}" } }}, .stopReason = .tool_use });
-    try f.ended(.{ .id = "t", .role = .tool_result, .timestamp = 0, .content = &.{.{ .text = "Tool execution denied by permission policy." }}, .toolCallId = "c", .isError = true });
+    try f.ended(.{ .id = "t", .role = .tool_result, .timestamp = 0, .content = &.{.{ .text = "The user did not allow this bash call." }}, .toolCallId = "c", .isError = true });
     try std.testing.expectEqual(Outcome.failed, try f.finish());
-    try std.testing.expectEqualStrings("error: the run stopped before a final reply: Tool execution denied by permission policy.\n", err.written());
+    try std.testing.expectEqualStrings("error: the run stopped before a final reply: The user did not allow this bash call.\n", err.written());
 }

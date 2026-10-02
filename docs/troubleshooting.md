@@ -26,7 +26,7 @@ A `--standalone` server keeps its logs in its own private directory, removed whe
 | Extension `failed`: `registered as 'x', expected 'y'` | `register` used a different name from the manifest or file | make them equal |
 | Runs stop with `InvalidPluginConfig` | `plugin.<id>` fails the schema that plugin declared | fix the value; `GET /config` names it |
 | A model is missing from `/model` | its provider has no key, saved credential or configured endpoint | `/connect`, `zeta auth login <provider>`, or `provider.<id>.options` |
-| A tool call is denied and the run ends | a permission rule says `ask` with nobody to answer (`zeta run` without a terminal), or the user denied it | add an `allow` rule for it ([permissions](permissions.md)) |
+| A tool call is denied and the run ends | a plugin asked the user with nobody to answer (`zeta run` without a terminal declines), or the user denied it | change that plugin's settings, e.g. an `allow` rule ([permissions](permissions.md)) |
 | A tool call is blocked but the run goes on | a hook blocked it; the reason is in the tool result | check the hooks in the registry |
 | A skill is not listed | file not named `SKILL.md`, not in its own directory under a skills root, bad frontmatter, or an invalid name | see [skills](skills.md) |
 | A prompt template is not offered | a client command name, whitespace in the name, or in a subdirectory | see [prompt templates](commands.md) |

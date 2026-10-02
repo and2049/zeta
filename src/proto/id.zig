@@ -13,8 +13,7 @@ pub const Kind = enum {
     message,
     part,
     event,
-    permission,
-    elicitation,
+    question,
 
     pub fn prefix(kind: Kind) []const u8 {
         return switch (kind) {
@@ -22,8 +21,7 @@ pub const Kind = enum {
             .message => "msg",
             .part => "prt",
             .event => "evt",
-            .permission => "per",
-            .elicitation => "eli",
+            .question => "que",
         };
     }
 };
