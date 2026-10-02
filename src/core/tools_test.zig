@@ -39,6 +39,13 @@ const TestTool = struct {
         defer _ = t.active.fetchSub(1, .seq_cst);
         _ = t.peak.fetchMax(n, .seq_cst);
         if (args.object.get("barrier") != null) t.barrier_clean.store(n == 1, .seq_cst);
+        // Calls that should overlap wait for each other (bounded), so a slow
+        // machine cannot finish one before the next starts.
+        if (args.object.get("meet") != null) {
+            var waited: usize = 0;
+            while (t.active.load(.seq_cst) < 2 and waited < 2000) : (waited += 1) try Io.sleep(io, .fromMilliseconds(1), .awake);
+            _ = t.peak.fetchMax(t.active.load(.seq_cst), .seq_cst);
+        }
         if (args.object.get("slow") != null) {
             Io.sleep(io, .fromMilliseconds(30), .awake) catch |err| {
                 if (err == error.Canceled) t.canceled.store(true, .seq_cst);
@@ -65,8 +72,8 @@ test "parallel batch, sequential barrier, source ordering, validation and event 
         .{ .name = "barrier", .description = "", .input_schema = "{}", .execution_mode = .sequential, .ctx = &stub, .execute = TestTool.run },
     };
     const calls: []const Call = &.{
-        .{ .id = "1", .name = "parallel", .arguments = "{\"ok\":true}" },
-        .{ .id = "2", .name = "parallel", .arguments = "{\"ok\":true}" },
+        .{ .id = "1", .name = "parallel", .arguments = "{\"ok\":true,\"meet\":true}" },
+        .{ .id = "2", .name = "parallel", .arguments = "{\"ok\":true,\"meet\":true}" },
         .{ .id = "3", .name = "barrier", .arguments = "{\"barrier\":true}" },
         .{ .id = "4", .name = "missing", .arguments = "{}" },
         .{ .id = "5", .name = "parallel", .arguments = "{" },
