@@ -2,10 +2,6 @@
 
 A small coding agent in Zig, with no dependencies beyond the standard library.
 
-- One background server per user; the terminal UI, `zeta run` and scripts talk to it over localhost HTTP + SSE.
-- Everything in the server is a plugin: tools, providers, hooks, MCP servers, extensions.
-- Status: early development.
-
 ## Install
 
 ```sh
