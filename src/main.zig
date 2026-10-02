@@ -97,6 +97,19 @@ pub fn main(init: std.process.Init) !void {
         if (code != 0) std.process.exit(code);
         return;
     }
+    if (std.mem.eql(u8, cmd, "update")) {
+        var buf: [1024]u8 = undefined;
+        var stdout = std.Io.File.stdout().writer(io, &buf);
+        const code = try client.update.run(gpa, io, &stdout.interface, args[2..], .{
+            .current = build_options.version,
+            .exe = try std.process.executablePathAlloc(io, arena),
+            .paths = try platform.Paths.resolve(arena, init.environ_map),
+            .base = init.environ_map.get("ZETA_UPDATE_URL") orelse client.update.default_base,
+        });
+        try stdout.interface.flush();
+        if (code != 0) std.process.exit(code);
+        return;
+    }
     if (std.mem.eql(u8, cmd, "auth") and args.len == 4 and std.mem.eql(u8, args[2], "login")) {
         const paths = try platform.Paths.resolve(arena, init.environ_map);
         try client.admin.authLogin(gpa, io, paths, args[3]);
@@ -370,6 +383,9 @@ const usage =
     \\               list this project's MCP servers, sign in to one, or sign out
     \\  auth login <provider>
     \\               save an API key from a hidden prompt or stdin
+    \\  update [<version>]
+    \\               replace this zeta with the latest release (or the given
+    \\               one), checked against the release's checksums
     \\  --version    print version
     \\
 ;

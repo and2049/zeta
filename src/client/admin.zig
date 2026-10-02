@@ -39,7 +39,7 @@ pub fn stop(gpa: Allocator, io: Io, paths: platform.Paths) !StopResult {
 }
 
 /// The live server's discovery record, or null; never starts a server.
-fn running(arena: Allocator, io: Io, paths: platform.Paths) !?proto.Discovery {
+pub fn running(arena: Allocator, io: Io, paths: platform.Paths) !?proto.Discovery {
     const path = try std.fs.path.join(arena, &.{ paths.runtime, proto.discovery.file_name });
     const bytes = (try platform.fs.readFileIfExists(io, arena, path, 64 * 1024)) orelse return null;
     const discovery = proto.Discovery.decode(arena, bytes) catch return error.InvalidDiscovery;

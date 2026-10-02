@@ -18,6 +18,7 @@ pub const questions = @import("questions.zig");
 pub const question_prompt = @import("question_prompt.zig");
 pub const mcp_cli = @import("mcp_cli.zig");
 pub const standalone = @import("standalone.zig");
+pub const update = @import("update.zig");
 pub const extensions = @import("extensions.zig");
 pub const state = @import("state.zig");
 pub const connection = @import("connection.zig");

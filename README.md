@@ -14,6 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/and2049/zeta/main/install.sh | bash
 
 - Linux and macOS, x86_64 and arm64; installs to `~/.local/bin/zeta`.
 - `ZETA_VERSION=v0.1.0` picks a release; `ZETA_INSTALL_DIR` picks the directory.
+- `zeta update` replaces the installed binary with the latest release (`zeta update 0.1.0` for another one), after checking its checksum. Then `zeta server stop`, so the next client starts the new server.
 
 ## Quick start
 
