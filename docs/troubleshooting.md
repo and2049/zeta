@@ -19,7 +19,7 @@ A `--standalone` server keeps its logs in its own private directory, removed whe
 |---|---|---|
 | A change to config, `AGENTS.md`, a skill or a template does not show | the run started before the change | send the next prompt; these are read per run |
 | A changed `hooks.json`, MCP server or extension does not show | not reloaded, or the reload failed (`zeta reload` exits 1 and names the plugin) | fix it, `zeta reload`, then check diagnostics |
-| A rebuilt or upgraded `zeta` behaves like the old one | the shared server is still the old binary | `zeta server stop`; the next client starts the new one |
+| A rebuilt or updated `zeta` behaves like the old one | the shared server is still the old binary (`zeta update` says so) | `zeta server stop`; the next client starts the new one |
 | Extension `failed`: no register | it printed nothing, crashed, or took over 10 seconds | run its command by hand; read its log |
 | Extension `failed`: protocol error | something other than one JSON object per line on stdout | send logs to stderr; flush after each message |
 | Extension `failed` after a while | it stopped answering pings for 30 seconds | read stdin on a thread of its own; handle requests concurrently |
