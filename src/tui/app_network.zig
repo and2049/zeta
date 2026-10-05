@@ -6,7 +6,7 @@ const Io = std.Io;
 const A = std.mem.Allocator;
 const attachments = @import("app_attach.zig");
 
-pub const Kind = enum { create, move, directories, list_sessions, list_models, list_providers, save_key, start_oauth, status_oauth, cancel_oauth, open_url, open_link, copy, files, get, config, page, prompt, abort, rename, auto_title, model, thinking, delete_session, reload, mcp, extensions, compact, fork, remove_inbox, edit_inbox, list_commands, answer_question, list_questions, undo };
+pub const Kind = enum { create, move, directories, list_sessions, list_models, list_providers, save_key, start_oauth, status_oauth, cancel_oauth, open_url, open_link, copy, shell, stop_shell, files, get, config, page, prompt, abort, rename, auto_title, model, thinking, delete_session, reload, mcp, extensions, compact, fork, remove_inbox, edit_inbox, list_commands, answer_question, list_questions, undo };
 pub const Job = struct {
     kind: Kind,
     id: []const u8 = "",
@@ -215,6 +215,14 @@ pub const Worker = struct {
             },
             .abort => blk: {
                 try api.abort(&c, arena, j.id);
+                break :blk "{}";
+            },
+            .shell => blk: {
+                _ = try api.shell(&c, arena, j.id, j.text);
+                break :blk "{}";
+            },
+            .stop_shell => blk: {
+                try api.stopShell(&c, arena, j.id);
                 break :blk "{}";
             },
             .rename => try std.json.Stringify.valueAlloc(arena, try api.update(&c, arena, j.id, j.text, null), .{}),

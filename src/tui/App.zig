@@ -87,6 +87,7 @@ auto_title_attempted: bool = false,
 connected: bool = false,
 follow_end: bool = true,
 scroll: usize = 0,
+shell: @import("shell_mode.zig").State = .{},
 /// Transcript text picked with the mouse.
 selection: @import("selection.zig").State = .{},
 last_lines: usize = 0,
@@ -305,6 +306,7 @@ pub fn appendText(self: *App, text: []const u8) !void {
 
 pub fn clearInput(self: *App) void {
     self.editor.clear();
+    self.shell.mode = false;
     for (self.attachments.items) |path| self.allocator.free(path);
     self.attachments.clearRetainingCapacity();
     for (self.embedded_images.items) |image| {

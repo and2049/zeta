@@ -223,6 +223,9 @@ fn failed(env: *Env, job: network.Job, err: anyerror) !void {
         .cancel_oauth => return,
         .open_url => return app.say("Could not open browser; use URL shown (Enter to retry).", .{}),
         .open_link => return app.say("Could not open {s}", .{job.text}),
+        .shell => return if (err == error.ShellBusy) app.say("A command is still running (Esc stops it)", .{}) else app.say("Could not run the command: {s}", .{@errorName(err)}),
+        // It ended on its own first.
+        .stop_shell => return,
         // `extra` is set when the terminal was given the text as well.
         .copy => return if (job.extra.len == 0) app.say("Could not copy: {s}", .{@errorName(err)}),
         .move => return switch (err) {

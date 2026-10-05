@@ -15,6 +15,7 @@ pub fn sync(app: *App, state: *const client.state.State) !void {
     app.connected = true;
     if (!std.mem.eql(u8, app.session_location, snapshot.info.location)) try app.setSessionLocation(snapshot.info.location);
     app.running = snapshot.running;
+    app.shell.set(if (snapshot.shell) |running| running.command else null, if (snapshot.shell) |running| running.startedAt else 0);
     app.title = try a.dupe(u8, snapshot.info.title orelse "Untitled session");
     app.named = if (snapshot.info.title) |title| title.len > 0 else false;
     app.model = if (snapshot.options.model) |name| try a.dupe(u8, name) else app.model_owned orelse "";
@@ -88,6 +89,17 @@ fn add(app: *App, a: A, m: proto.Message, outstanding: *std.StringHashMapUnmanag
         call.output = try output.toOwnedSlice(a);
         return;
     };
+    // A command the user ran: the command, then what it printed.
+    if (m.role == .user and m.origin != null and std.mem.eql(u8, m.origin.?, "shell") and m.content.len == 2 and m.content[0] == .text and m.content[1] == .text) {
+        return app.messages.append(app.allocator, .{
+            .id = try a.dupe(u8, m.id),
+            .role = "user",
+            .origin = "shell",
+            .text = try a.dupe(u8, m.content[0].text),
+            .output = try a.dupe(u8, m.content[1].text),
+            .is_error = m.isError,
+        });
+    }
     var text: std.ArrayList(u8) = .empty;
     var thinking: std.ArrayList(u8) = .empty;
     for (m.content) |part| switch (part) {

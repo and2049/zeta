@@ -34,6 +34,8 @@ stop_requested: Io.Event = .unset,
 data_dir: []const u8,
 config_mutex: Io.Mutex = .init,
 auth_flow: AuthFlow = .{},
+/// Shell commands users are running in their sessions.
+shells: @import("shell.zig").Shells = .{},
 limits: conn_limits.Limits,
 url_buf: [64]u8 = undefined,
 url_len: usize = 0,
@@ -78,6 +80,7 @@ pub fn listen(gpa: Allocator, io: Io, runtime: *core.Runtime, options: Options) 
 }
 
 pub fn deinit(s: *Server) void {
+    s.shells.deinit(s);
     s.auth_flow.deinit(s.io);
     s.listener.deinit(s.io);
 }

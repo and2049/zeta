@@ -22,7 +22,10 @@ pub const Snapshot = struct {
     messages: []const proto.Message,
     inflight: ?proto.Message,
     nextBefore: ?[]const u8,
+    /// The shell command the user is running in the session.
+    shell: ?Shell = null,
 };
+pub const Shell = struct { id: []const u8, command: []const u8, startedAt: i64 = 0 };
 pub const Page = struct { messages: []const proto.Message, nextBefore: ?[]const u8 };
 pub const Receipt = struct { inboxId: []const u8 };
 pub const Delivery = enum { queue, steer };
@@ -50,6 +53,7 @@ pub fn check(response: Client.Response) !void {
         .conflict => {
             if (eq(code, "inbox item already being processed") or eq(code, "InboxItemBusy")) return error.InboxItemBusy;
             if (eq(code, "SessionBusy")) return error.SessionBusy;
+            if (eq(code, "a shell command is already running in this session")) return error.ShellBusy;
         },
         .bad_request => {
             if (eq(code, "ModelDoesNotSupportImages")) return error.ModelDoesNotSupportImages;
@@ -155,6 +159,15 @@ pub fn undoSummary(buf: []u8, done: ?Undone) []const u8 {
     for (d.files) |f| if (!f.restored) w.print("; {s} changed since, left as is", .{f.path}) catch return buf[0..w.end];
     w.writeByte('.') catch {};
     return buf[0..w.end];
+}
+/// Runs `command` in the session's project; its output is added to the
+/// conversation when it ends. Returns the id that entry will have.
+pub fn shell(c: *Client, a: Allocator, id: []const u8, command: []const u8) ![]const u8 {
+    return (try result(struct { id: []const u8 }, a, try c.postJson(a, try path(a, id, "/shell"), .{ .command = command }))).id;
+}
+/// Stops the session's running shell command.
+pub fn stopShell(c: *Client, a: Allocator, id: []const u8) !void {
+    _ = try result(struct { ok: bool }, a, try c.delete(a, try path(a, id, "/shell")));
 }
 pub fn abort(c: *Client, a: Allocator, id: []const u8) !void {
     _ = try result(struct { ok: bool }, a, try c.postJson(a, try path(a, id, "/abort"), .{}));

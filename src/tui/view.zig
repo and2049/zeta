@@ -68,6 +68,10 @@ pub const Cache = struct {
                 try entries.append(a, .{ .kind = .compaction, .label = label, .text = message.text });
                 continue;
             }
+            if (message.origin != null and std.mem.eql(u8, message.origin.?, "shell")) {
+                try entries.append(a, .{ .kind = .shell, .text = message.text, .output = message.output, .failed = message.is_error });
+                continue;
+            }
             if (message.thinking.len > 0) try entries.append(a, .{ .kind = .reasoning, .text = message.thinking });
             const tool = std.mem.eql(u8, message.role, "tool_call") or std.mem.eql(u8, message.role, "tool_result");
             const user = std.mem.eql(u8, message.role, "user");
@@ -129,7 +133,7 @@ pub fn drawCached(screen: *Screen, app: *App, frame: Frame, cache: *Cache) ![]u8
     defer scratch.deinit();
     const a = scratch.allocator();
     const rows = screen.rows;
-    if (app.running) app.tick +%= 1;
+    if (app.running or app.shell.started != null) app.tick +%= 1;
     const view: plugin.View = .{ .app = app, .palette = frame.palette, .spinner = spinner[(app.tick / 3) % spinner.len] };
 
     try bar(screen, a, frame.registry, view, rows -| 2, .footer_first, .footer_status);
@@ -156,7 +160,7 @@ pub fn drawCached(screen: *Screen, app: *App, frame: Frame, cache: *Cache) ![]u8
         screen.drawStyledText(0, top, heading, .{ .dim = true });
         drawPreview(screen, presentation.columns(heading), top, last.text);
     }
-    if (app.running and top > 3) {
+    if ((app.running or app.shell.started != null) and top > 3) {
         top -= 1;
         workingRow(screen, app, frame, view.spinner, top);
     }
@@ -173,15 +177,17 @@ pub fn drawCached(screen: *Screen, app: *App, frame: Frame, cache: *Cache) ![]u8
 fn workingRow(screen: *Screen, app: *const App, frame: Frame, glyph: []const u8, y: usize) void {
     var buf: [160]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
-    switch (app.activity) {
+    // The user's own command comes first: Escape stops it first.
+    const started = if (app.shell.started != null) app.shell.started else app.turn_started;
+    if (app.shell.started != null) w.print("Running {s}…", .{app.shell.command()}) catch {} else switch (app.activity) {
         .working => w.writeAll("Working…") catch {},
         .thinking => w.writeAll("Thinking…") catch {},
         .compacting => w.writeAll("Compacting…") catch {},
         .tool => w.print("Running {s}…", .{app.activity_tool}) catch {},
     }
-    if (app.turn_started) |started| if (frame.now_ms > started) {
+    if (started) |since| if (frame.now_ms > since) {
         var span: [32]u8 = undefined;
-        w.print(" {s}", .{clock.duration(&span, frame.now_ms - started)}) catch {};
+        w.print(" {s}", .{clock.duration(&span, frame.now_ms - since)}) catch {};
     };
     screen.drawStyledText(1, y, glyph, .{ .foreground = screen_mod.Color.cyan, .bold = true });
     const x = 2 + presentation.columns(glyph);

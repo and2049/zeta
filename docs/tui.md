@@ -56,7 +56,9 @@ reported in the footer and the defaults apply.
   cannot distinguish Shift+Enter. Keys reported with modifiers (CSI u or
   xterm modifyOtherKeys) are understood, including Alt/Ctrl+Backspace to
   delete a word.
-- **Escape** dismisses a picker/completion before aborting an active turn.
+- **Escape** dismisses a picker/completion, then leaves shell mode, then
+  stops your running shell command, before aborting an active turn.
+- **!** in an empty editor starts a [shell command](#shell-commands).
 - Bracketed paste inserts text without submitting embedded newlines.
 - PageUp/PageDown and the mouse wheel scroll; End returns to live output.
 - **Ctrl+O** expands/collapses tool output; **Ctrl+T** expands/collapses
@@ -68,6 +70,30 @@ reported in the footer and the defaults apply.
   too, and runs a command that needs no arguments. Escape closes the list.
   `/name arguments` runs a prompt template; any other unknown `/name` is sent
   as ordinary text.
+
+## Shell commands
+
+Type `!` in an empty editor to run a shell command yourself: the rules
+turn yellow and a `!` marks the line. Enter runs what you typed with
+`bash` in the project directory and returns to the ordinary editor;
+Escape, Backspace on the empty line or Ctrl+C leave shell mode without
+running anything. To start a prompt with a literal `!`, type a space
+first or paste it.
+
+The command and its output appear in the conversation (the first 20 lines
+of output; Ctrl+O shows all that was kept, the last 2000 lines or 50 KB)
+and the agent sees them too, but running a command does not start a turn:
+the agent reads it with your next prompt. If a turn is running, the
+output joins it at its next step instead, like a steering message.
+
+A command may run as long as it needs. The line above the editor shows
+`Running <command>… 12s · Esc to stop`; Escape stops it and keeps what it
+printed. One command runs at a time per conversation.
+
+The command runs on the server, with the environment the server was
+started with, which may differ from this terminal's (another `PATH`, no
+activated virtualenv). It gets no input, so commands that ask questions
+fail or stop at once. Plugin hooks do not apply to commands you run.
 
 ## Copying text
 

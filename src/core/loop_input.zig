@@ -45,6 +45,16 @@ fn settle(l: *Loop, id: []const u8) void {
     } else |_| {}
 }
 
+/// Records the results of shell commands the user ran meanwhile. They
+/// join the conversation where it stands and ask nothing of the model.
+pub fn appendShell(l: *Loop, arena: Allocator) !void {
+    const shell = @import("shell.zig");
+    while (try l.inbox.takeShell(arena)) |item| {
+        var parts: [2]proto.message.Content = undefined;
+        try l.appendMessage(shell.message(&parts, item, l.now()));
+    }
+}
+
 pub fn appendUser(l: *Loop, arena: Allocator, next: Pending) !void {
     const item = next.item;
     const content = try arena.alloc(proto.message.Content, 1 + item.images.len);

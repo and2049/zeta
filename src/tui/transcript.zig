@@ -7,8 +7,9 @@ const md = @import("markdown.zig");
 const A = std.mem.Allocator;
 /// `notice`: a one-line note the client added, e.g. a moved session.
 /// `compaction`: a summary of older history. `turn_end`: how long a turn
-/// took (`text` is the line).
-pub const Kind = enum { user, assistant, reasoning, tool, notice, compaction, turn_end };
+/// took (`text` is the line). `shell`: a command the user ran (`text`)
+/// and what it printed (`output`).
+pub const Kind = enum { user, assistant, reasoning, tool, notice, compaction, turn_end, shell };
 pub const Change = struct {
     path: []const u8,
     before: []const u8,
@@ -34,6 +35,8 @@ pub const Entry = struct {
 pub const Options = struct { width: usize, expand_reasoning: bool = false, expand_tools: bool = false, expand_compaction: bool = false };
 
 const max_output_lines = 40;
+/// A command the user ran shows this much output until tools are expanded.
+const shell_output_lines = 20;
 const max_argument_lines = 12;
 const max_diff_lines = 24;
 
@@ -72,6 +75,17 @@ pub fn render(a: A, entries: []const Entry, options: Options) ![]p.Line {
                 try b.newline();
             },
             .tool => try tool(&b, entry, options),
+            .shell => {
+                b.surface = true;
+                try b.newline();
+                try b.pad(" ", .normal);
+                try b.add("! ", if (entry.failed) .failure else .accent);
+                try b.wrapLinked(std.mem.trim(u8, entry.text, "\r\n"), .user, .link, inner, "   ");
+                try b.newline();
+                try b.newline();
+                b.surface = false;
+                try block(&b, entry.output, .tool, if (options.expand_tools) std.math.maxInt(usize) else shell_output_lines, options.width);
+            },
             .notice => {
                 try b.add(" → ", .muted);
                 try b.wrapLinked(std.mem.trim(u8, entry.text, " \t\r\n"), .muted, .link, options.width, "   ");
@@ -325,6 +339,25 @@ test "disclosures show the tail collapsed and everything expanded" {
     const body = try rowText(expanded, 1);
     defer a.free(body);
     try std.testing.expectEqualStrings("   first part", body);
+}
+
+test "a command the user ran shows its output, cut until expanded" {
+    const a = std.testing.allocator;
+    const entry: Entry = .{ .kind = .shell, .text = "seq 30", .output = "1\n" ** 30 ++ "Command exited with code 1", .failed = true };
+    const short = try render(a, &.{entry}, .{ .width = 40 });
+    defer p.freeLines(a, short);
+    const head = try rowText(short, 1);
+    defer a.free(head);
+    try std.testing.expectEqualStrings(" ! seq 30", head);
+    try std.testing.expect(short[1].surface and !short[3].surface);
+    const more = try rowText(short, short.len - 1);
+    defer a.free(more);
+    try std.testing.expectEqualStrings("   … 11 more lines", more);
+    const all = try render(a, &.{entry}, .{ .width = 40, .expand_tools = true });
+    defer p.freeLines(a, all);
+    const last = try rowText(all, all.len - 1);
+    defer a.free(last);
+    try std.testing.expectEqualStrings("   Command exited with code 1", last);
 }
 
 test "a notice is one muted line" {

@@ -8,6 +8,23 @@ pub const Output = struct {
     truncated: bool,
     term: std.process.Child.Term,
     timed_out: bool = false,
+    /// Ended through its `Stop`.
+    stopped: bool = false,
+};
+
+/// Lets another task end a running command early while keeping what it
+/// printed. Must outlive the `runStoppable` call it is passed to.
+pub const Stop = struct {
+    group: std.atomic.Value(std.posix.pid_t) = .init(0),
+    requested: std.atomic.Value(bool) = .init(false),
+
+    /// Kills the command and its children; before the command has started
+    /// it is killed as soon as it does.
+    pub fn request(s: *Stop) void {
+        s.requested.store(true, .release);
+        const pid = s.group.load(.acquire);
+        if (pid > 0) killGroup(pid);
+    }
 };
 
 const Capture = struct { text: []const u8, truncated: bool };
@@ -68,6 +85,12 @@ fn killGroup(pid: std.posix.pid_t) void {
 /// run the same group-kill/reap cleanup. stderr is merged into stdout in
 /// arrival order; output is bounded to 50 KiB and 2000 trailing lines.
 pub fn run(arena: std.mem.Allocator, io: Io, cwd: []const u8, script: []const u8, timeout_ms: ?u64) !Output {
+    return runStoppable(arena, io, cwd, script, timeout_ms, null);
+}
+
+/// `run`, ended early by `stop.request()`: the output so far is returned
+/// with `stopped` set.
+pub fn runStoppable(arena: std.mem.Allocator, io: Io, cwd: []const u8, script: []const u8, timeout_ms: ?u64, stop: ?*Stop) !Output {
     if (!std.fs.path.isAbsolute(cwd)) return error.RelativeWorkingDirectory;
     var fds: [2]std.c.fd_t = undefined;
     if (std.c.pipe(&fds) != 0) return error.PipeFailed;
@@ -96,8 +119,13 @@ pub fn run(arena: std.mem.Allocator, io: Io, cwd: []const u8, script: []const u8
     // Always kill the process group, even after the leader exits: a background
     // child can close its inherited pipe and otherwise survive a successful run.
     defer {
+        if (stop) |s| s.group.store(0, .release);
         killGroup(pgid);
         child.kill(io);
+    }
+    if (stop) |s| {
+        s.group.store(pgid, .release);
+        if (s.requested.load(.acquire)) killGroup(pgid);
     }
 
     var data: Capture = undefined;
@@ -125,7 +153,7 @@ pub fn run(arena: std.mem.Allocator, io: Io, cwd: []const u8, script: []const u8
         }
     } else data = try capture(arena, io, reader);
     const term = try child.wait(io);
-    return .{ .text = data.text, .truncated = data.truncated, .term = term };
+    return .{ .text = data.text, .truncated = data.truncated, .term = term, .stopped = if (stop) |s| s.requested.load(.acquire) else false };
 }
 
 test "working directory, merged stderr and nonzero status" {
@@ -185,6 +213,29 @@ test "successful shell does not orphan background child with redirected output" 
     try std.testing.expectEqualStrings("complete\n", result.text);
     try Io.sleep(io, .fromMilliseconds(2100), .awake);
     try std.testing.expectError(error.FileNotFound, tmp.dir.access(io, "escaped", .{}));
+}
+
+test "a stop request ends the command and keeps what it printed" {
+    const io = std.testing.io;
+    var stop: Stop = .{};
+    const Event = union(enum) { command: anyerror!Output, wait: Io.Cancelable!void };
+    var storage: [2]Event = undefined;
+    var select: Io.Select(Event) = .init(io, &storage);
+    defer select.cancelDiscard();
+    try select.concurrent(.command, runStoppable, .{ std.testing.allocator, io, "/tmp", "echo before; sleep 30; echo after", @as(?u64, null), &stop });
+    try select.concurrent(.wait, Io.sleep, .{ io, Io.Duration.fromMilliseconds(150), Io.Clock.awake });
+    try std.testing.expect(try select.await() == .wait);
+    stop.request();
+    const result = try (try select.await()).command;
+    defer std.testing.allocator.free(result.text);
+    try std.testing.expect(result.stopped);
+    try std.testing.expectEqualStrings("before\n", result.text);
+    // Asked before the command starts: it ends at once.
+    var early: Stop = .{};
+    early.request();
+    const none = try runStoppable(std.testing.allocator, io, "/tmp", "sleep 30", null, &early);
+    defer std.testing.allocator.free(none.text);
+    try std.testing.expect(none.stopped);
 }
 
 test "outer cancellation kills descendants" {

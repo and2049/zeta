@@ -32,6 +32,7 @@ pub fn tokenAt(app: *const App, registry: *const plugin.Registry) completion.Tok
 
 /// The open list, or null. Allocations go to `arena`.
 pub fn current(app: *App, registry: *const plugin.Registry, arena: std.mem.Allocator) !?Current {
+    if (app.shell.mode) return null;
     const token = tokenAt(app, registry);
     if (!app.completion.open(token)) return null;
     const items: []const picker.Item = switch (token.kind) {

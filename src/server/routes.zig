@@ -10,6 +10,7 @@ const auth_routes = @import("auth_routes.zig");
 const query = @import("query.zig");
 const session_actions = @import("session_actions.zig");
 const file_routes = @import("file_routes.zig");
+const shell = @import("shell.zig");
 
 pub fn dispatch(s: *Server, c: *Ctx) !void {
     var seg_buf: [8][]const u8 = undefined;
@@ -107,6 +108,11 @@ pub fn dispatch(s: *Server, c: *Ctx) !void {
             if (limit == 0 or limit > 200) return error.InvalidLimit;
             return c.json(.ok, try s.runtime.messages(c.arena, seg[1], before, limit));
         }
+    }
+    if (seg.len == 3 and std.mem.eql(u8, seg[0], "sessions") and std.mem.eql(u8, seg[2], "shell")) {
+        if (c.method == .POST) return shell.start(s, c, seg[1]);
+        if (c.method == .DELETE) return shell.stop(s, c, seg[1]);
+        return c.fail(.method_not_allowed, "method not allowed");
     }
     if (seg.len == 3 and std.mem.eql(u8, seg[0], "sessions") and std.mem.eql(u8, seg[2], "prompt")) {
         if (c.method != .POST) return c.fail(.method_not_allowed, "method not allowed");

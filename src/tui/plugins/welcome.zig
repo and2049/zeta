@@ -40,6 +40,7 @@ const logo = [_][]const u8{
 const hints = [_][2][]const u8{
     .{ "/", "commands" },
     .{ "@", "files" },
+    .{ "!", "shell" },
     .{ "Enter", "send · Ctrl-J new line" },
     .{ "Esc", "stop · Ctrl-Q quit" },
 };

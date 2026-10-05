@@ -486,3 +486,35 @@ test("TUI opens a link when it is clicked and marks links for the terminal", asy
   expect(terminalClipboard(t)).toHaveLength(0);
   expect(await t.quit()).toBe(0);
 }, 15000);
+
+test("! runs a shell command without starting a turn; the next prompt carries its output", async () => {
+  const t = await start();
+  t.send("!");
+  await Bun.sleep(100);
+  t.send("echo SHELL_$((40+2))\r");
+  await waitFor(() => t.screen().includes("SHELL_42"), "command output");
+  expect(t.screen()).toContain("! echo SHELL_$((40+2))");
+  await Bun.sleep(200);
+  expect(llm.requests).toHaveLength(0);
+  // Back in the ordinary editor: this is a prompt.
+  llm.reply({ text: "I saw it" });
+  t.send("what happened?\r");
+  await waitFor(() => t.screen().includes("I saw it"), "reply");
+  expect(JSON.stringify(llm.requests[0].messages)).toContain("Output:\\nSHELL_42");
+  expect(await t.quit()).toBe(0);
+}, 15000);
+
+test("Escape stops a running shell command and keeps its output", async () => {
+  const t = await start();
+  t.send("!");
+  await Bun.sleep(100);
+  t.send("echo BEFORE_STOP; sleep 30\r");
+  await waitFor(() => t.screen().includes("Running echo BEFORE_STOP; sleep 30"), "working row");
+  await Bun.sleep(300);
+  t.send("\x1b");
+  await waitFor(() => t.screen().includes("Stopped by the user"), "stopped");
+  expect(t.screen()).toContain("BEFORE_STOP");
+  expect(t.screen()).not.toContain("Running echo");
+  expect(llm.requests).toHaveLength(0);
+  expect(await t.quit()).toBe(0);
+}, 15000);

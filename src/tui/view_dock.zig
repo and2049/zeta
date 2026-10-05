@@ -18,7 +18,7 @@ pub const Cursor = editor_view.Cursor;
 /// Rows between the two rules.
 pub fn contentRows(app: *const App, registry: *const plugin.Registry, cols: usize, rows: usize) usize {
     return switch (app.overlay) {
-        .none => @min(@max(@as(usize, 1), editor_view.rowCount(app.editor.text(), cols)), @max(@as(usize, 5), rows * 3 / 10)),
+        .none => @min(@max(@as(usize, 1), editor_view.rowCount(app.editor.text(), cols -| indent(app))), @max(@as(usize, 5), rows * 3 / 10)),
         .help => helpLines(registry) + 1,
         .question => if (app.questions.items.items.len > 0) if (registry.questionRenderer(app.questions.items.items[0].question.kind)) |r| r.rows(&app.questions.items.items[0]) else 2 else 2,
         .connect_oauth => 4,
@@ -30,7 +30,8 @@ pub fn contentRows(app: *const App, registry: *const plugin.Registry, cols: usiz
 /// Draws the rules at `top` and `top + content + 1` and the content between.
 /// Returns where the cursor goes, or null to hide it when nothing takes text.
 pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palette: Palette, top: usize, content: usize) !?Cursor {
-    const rule: screen_mod.Style = .{ .foreground = terminal_style.ruleColor(app.thinking) };
+    const shell = app.overlay == .none and app.shell.mode;
+    const rule: screen_mod.Style = .{ .foreground = if (shell) screen_mod.Color.yellow else terminal_style.ruleColor(app.thinking) };
     for ([_]usize{ top, top + content + 1 }) |y| {
         var x: usize = 0;
         while (x < screen.cols) : (x += 1) screen.drawStyledText(x, y, "─", rule);
@@ -54,7 +55,10 @@ pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palett
     }
     const y = top + 1;
     switch (app.overlay) {
-        .none => return editor_view.draw(screen, app.editor.text(), app.editor.cursor, y, content),
+        .none => {
+            if (shell) screen.drawStyledText(1, y, "!", .{ .foreground = screen_mod.Color.yellow, .bold = true });
+            return editor_view.draw(screen, app.editor.text(), app.editor.cursor, y, content, indent(app));
+        },
         .help => {
             var row = y;
             for (registry.keybinds.items) |k| {
@@ -69,7 +73,7 @@ pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palett
                 screen.drawStyledText(14, row, key[1], .{ .dim = true });
                 row += 1;
             }
-            screen.drawStyledText(1, row, "Type / for commands and @ for files. Esc closes.", .{ .dim = true });
+            screen.drawStyledText(1, row, "Type / for commands, @ for files, ! for a shell command. Esc closes.", .{ .dim = true });
         },
         .question => if (app.questions.items.items.len > 0) {
             const entry = &app.questions.items.items[0];
@@ -112,6 +116,11 @@ pub fn draw(screen: *Screen, app: *App, registry: *const plugin.Registry, palett
         },
     }
     return null;
+}
+
+/// Columns the editor leaves for the shell mode marker.
+fn indent(app: *const App) usize {
+    return if (app.shell.mode) @import("shell_mode.zig").marker_columns else 0;
 }
 
 const fixed_keys = [_][2][]const u8{

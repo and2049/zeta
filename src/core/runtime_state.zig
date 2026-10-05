@@ -102,6 +102,7 @@ pub fn snapshotPage(rt: *Runtime, arena: Allocator, id: []const u8, before: ?[]c
         .messages = page,
         .inflight = if (entry.draft) |draft| try copyMessage(arena, draft) else null,
         .nextBefore = if (start > 0) try arena.dupe(u8, history[start].id) else null,
+        .shell = if (entry.shell) |running| .{ .id = try arena.dupe(u8, running.id), .command = try arena.dupe(u8, running.command), .startedAt = running.startedAt } else null,
     };
 }
 
@@ -220,6 +221,7 @@ pub fn deleteSession(rt: *Runtime, id: []const u8) !void {
     entry.inbox.deinit();
     if (entry.pending_options) |pending| freeOverrides(rt, pending);
     freeOverrides(rt, entry.overrides);
+    @import("shell.zig").drop(rt, entry);
     entry.session.destroy(rt.gpa, rt.io);
     rt.gpa.destroy(entry);
 }
