@@ -24,6 +24,8 @@ pub const Info = struct {
     /// copied.
     forkedFrom: ?[]const u8 = null,
     forkedAt: ?[]const u8 = null,
+    /// In listings: when the latest message was added or finished.
+    updated: ?i64 = null,
 };
 
 /// Where a forked session came from.

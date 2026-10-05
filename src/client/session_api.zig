@@ -4,7 +4,8 @@ const proto = @import("proto");
 const Client = @import("Client.zig");
 const Allocator = std.mem.Allocator;
 
-pub const Info = struct { id: []const u8, location: []const u8, created: i64, title: ?[]const u8 = null, forkedFrom: ?[]const u8 = null, forkedAt: ?[]const u8 = null };
+/// `updated` (listings only): when the latest message was added or finished.
+pub const Info = struct { id: []const u8, location: []const u8, created: i64, title: ?[]const u8 = null, forkedFrom: ?[]const u8 = null, forkedAt: ?[]const u8 = null, updated: ?i64 = null };
 pub const Options = struct {
     profile: ?[]const u8 = null,
     model: ?[]const u8 = null,

@@ -14,7 +14,7 @@ Never edit a log while a server has it open. To change a session, use the comman
 
 | Task | CLI | Terminal client | HTTP |
 |---|---|---|---|
-| list this project's sessions, newest first | `zeta sessions` (`--all` for every project) | `/resume` | `GET /sessions?location=` |
+| list this project's sessions, most recently active first | `zeta sessions` (`--all` for every project) | `/resume` | `GET /sessions?location=` |
 | find sessions mentioning text | `zeta sessions <text>` | | `GET /sessions?q=` |
 | continue the latest, or a given one | `zeta run -c …`, `zeta run --session <id> …` | `/resume` | `POST /sessions/:id/prompt` |
 | export as JSONL | `zeta sessions export <id>` | | `GET /sessions/:id/export` |

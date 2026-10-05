@@ -53,7 +53,7 @@ fn open(arena: Allocator, client: *Client, stderr: *Io.Writer, o: Options) !?Ope
             try stderr.print("error: listing sessions: {s}\n", .{@errorName(err)});
             return null;
         };
-        // Listed newest first.
+        // Listed most recently active first.
         break :blk if (sessions.len > 0) sessions[0].id else null;
     } else null;
     if (existing) |id| {
