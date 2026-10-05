@@ -137,6 +137,10 @@ pub const State = struct {
                     try s.appendDraft(draft, index, kind, delta);
                 };
             }
+        } else if (eq(t, proto.event.types.shell_started)) {
+            v.shell = try std.json.parseFromValueLeaky(api.Shell, a, e.data, .{ .ignore_unknown_fields = true });
+        } else if (eq(t, proto.event.types.shell_ended)) {
+            v.shell = null;
         } else if (eq(t, proto.event.types.session_idle) or eq(t, proto.event.types.agent_end)) {
             v.running = false;
         } else if (eq(t, proto.event.types.agent_start)) {

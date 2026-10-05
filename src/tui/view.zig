@@ -15,6 +15,7 @@ const dock = @import("view_dock.zig");
 const app_completion = @import("app_completion.zig");
 const completion = @import("completion.zig");
 const clock = @import("clock.zig");
+const selection = @import("selection.zig");
 
 /// What a frame is drawn with besides the app state.
 pub const Frame = struct {
@@ -37,6 +38,9 @@ pub const Cache = struct {
     expand_tools: bool = false,
     show_reasoning: bool = false,
     show_compaction: bool = false,
+    /// Changes when rows are laid out differently (width or what is
+    /// expanded), not when the conversation grows.
+    layout: u64 = 0,
 
     pub fn init(allocator: std.mem.Allocator) Cache {
         return .{ .allocator = allocator };
@@ -64,6 +68,10 @@ pub const Cache = struct {
                 try entries.append(a, .{ .kind = .compaction, .label = label, .text = message.text });
                 continue;
             }
+            if (message.origin != null and std.mem.eql(u8, message.origin.?, "shell")) {
+                try entries.append(a, .{ .kind = .shell, .text = message.text, .output = message.output, .failed = message.is_error });
+                continue;
+            }
             if (message.thinking.len > 0) try entries.append(a, .{ .kind = .reasoning, .text = message.thinking });
             const tool = std.mem.eql(u8, message.role, "tool_call") or std.mem.eql(u8, message.role, "tool_result");
             const user = std.mem.eql(u8, message.role, "user");
@@ -89,6 +97,7 @@ pub const Cache = struct {
         }
         const fresh = try transcript.render(self.allocator, entries.items, .{ .width = cols, .expand_tools = app.expand_tools, .expand_reasoning = app.show_reasoning, .expand_compaction = app.show_compaction });
         if (self.lines) |old| presentation.freeLines(self.allocator, old);
+        if (self.columns != cols or self.expand_tools != app.expand_tools or self.show_reasoning != app.show_reasoning or self.show_compaction != app.show_compaction) self.layout +%= 1;
         self.lines = fresh;
         self.revision = app.render_revision;
         self.columns = cols;
@@ -124,7 +133,7 @@ pub fn drawCached(screen: *Screen, app: *App, frame: Frame, cache: *Cache) ![]u8
     defer scratch.deinit();
     const a = scratch.allocator();
     const rows = screen.rows;
-    if (app.running) app.tick +%= 1;
+    if (app.running or app.shell.started != null) app.tick +%= 1;
     const view: plugin.View = .{ .app = app, .palette = frame.palette, .spinner = spinner[(app.tick / 3) % spinner.len] };
 
     try bar(screen, a, frame.registry, view, rows -| 2, .footer_first, .footer_status);
@@ -151,7 +160,7 @@ pub fn drawCached(screen: *Screen, app: *App, frame: Frame, cache: *Cache) ![]u8
         screen.drawStyledText(0, top, heading, .{ .dim = true });
         drawPreview(screen, presentation.columns(heading), top, last.text);
     }
-    if (app.running and top > 3) {
+    if ((app.running or app.shell.started != null) and top > 3) {
         top -= 1;
         workingRow(screen, app, frame, view.spinner, top);
     }
@@ -168,15 +177,17 @@ pub fn drawCached(screen: *Screen, app: *App, frame: Frame, cache: *Cache) ![]u8
 fn workingRow(screen: *Screen, app: *const App, frame: Frame, glyph: []const u8, y: usize) void {
     var buf: [160]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
-    switch (app.activity) {
+    // The user's own command comes first: Escape stops it first.
+    const started = if (app.shell.started != null) app.shell.started else app.turn_started;
+    if (app.shell.started != null) w.print("Running {s}…", .{app.shell.command()}) catch {} else switch (app.activity) {
         .working => w.writeAll("Working…") catch {},
         .thinking => w.writeAll("Thinking…") catch {},
         .compacting => w.writeAll("Compacting…") catch {},
         .tool => w.print("Running {s}…", .{app.activity_tool}) catch {},
     }
-    if (app.turn_started) |started| if (frame.now_ms > started) {
+    if (started) |since| if (frame.now_ms > since) {
         var span: [32]u8 = undefined;
-        w.print(" {s}", .{clock.duration(&span, frame.now_ms - started)}) catch {};
+        w.print(" {s}", .{clock.duration(&span, frame.now_ms - since)}) catch {};
     };
     screen.drawStyledText(1, y, glyph, .{ .foreground = screen_mod.Color.cyan, .bold = true });
     const x = 2 + presentation.columns(glyph);
@@ -191,6 +202,13 @@ fn transcriptArea(screen: *Screen, app: *App, frame: Frame, cache: *Cache, first
     // Scroll is the distance from the end: new output does not move the
     // view while the user reads older history.
     if (app.follow_end) app.scroll = 0 else if (!app.history_prepend and lines.len > app.last_lines) app.scroll +|= lines.len - app.last_lines;
+    // A selection stays on its text: it moves with older history added
+    // above and goes when the rows are laid out again.
+    const selected = &app.selection;
+    if (app.history_prepend) selected.shift(lines.len -| app.last_lines);
+    if (selected.layout != cache.layout) selected.clear();
+    selected.layout = cache.layout;
+    selected.viewport = .{};
     app.history_prepend = false;
     app.last_lines = lines.len;
     if (app.messages.items.len == 0 and height > 1) {
@@ -205,9 +223,12 @@ fn transcriptArea(screen: *Screen, app: *App, frame: Frame, cache: *Cache, first
     app.scroll = @min(app.scroll, lines.len -| height);
     const end = lines.len -| app.scroll;
     const start = end -| height;
-    for (lines[start..end], first..) |line, y| {
+    selected.viewport = .{ .first = first, .height = end - start, .start = start, .total = lines.len };
+    const range = selected.range(lines);
+    for (lines[start..end], first.., start..) |line, y, index| {
         drawSpans(screen, 0, y, line.spans);
         if (line.surface) screen.fill(0, y, frame.palette.surface);
+        if (range) |r| if (selection.shown(line, r, index)) |cols| screen.fillSpan(cols[0], cols[1], y, frame.palette.selected);
     }
     if (app.scroll > 0 and height > 0) {
         var buf: [64]u8 = undefined;
@@ -265,7 +286,9 @@ fn bar(screen: *Screen, a: std.mem.Allocator, registry: *const plugin.Registry, 
 fn drawSpans(screen: *Screen, x0: usize, y: usize, spans: []const presentation.Span) void {
     var x = x0;
     for (spans) |span| {
-        screen.drawStyledText(x, y, span.text, terminal_style.styleFor(span.style));
+        var style = terminal_style.styleFor(span.style);
+        if (span.link != null) style.underline = true;
+        screen.drawLinkedText(x, y, span.text, style, span.link);
         x += presentation.columns(span.text);
     }
 }

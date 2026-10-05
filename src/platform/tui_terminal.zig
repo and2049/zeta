@@ -4,7 +4,7 @@ const Io = std.Io;
 
 pub const Size = struct { columns: u16, rows: u16 };
 /// Also pops the window title saved on entry (`CSI 23;0t`).
-const restore_screen = "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1006l\x1b[?1000l\x1b[?2004l\x1b[?7h\x1b[?1049l\x1b[23;0t";
+const restore_screen = "\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[?7h\x1b[?1049l\x1b[23;0t";
 
 /// The terminal a live `Terminal` changed, for `restoreOnPanic`. A panic does
 /// not run defers, so `deinit` never gets the chance.
@@ -58,7 +58,7 @@ pub const Terminal = struct {
         errdefer std.posix.tcsetattr(input.handle, .FLUSH, original) catch {};
         // A streaming write can fail after activating the alternate screen.
         errdefer output.writeStreamingAll(io, restore_screen) catch {};
-        try output.writeStreamingAll(io, "\x1b[22;0t\x1b[?1049h\x1b[?7l\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[2J\x1b[H\x1b[?25l");
+        try output.writeStreamingAll(io, "\x1b[22;0t\x1b[?1049h\x1b[?7l\x1b[?2004h\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[2J\x1b[H\x1b[?25l");
         panic_restore = .{ .input = input.handle, .output = output.handle, .original = original };
         var self: Terminal = .{ .io = io, .input = input, .output = output, .original = original, .size = querySize(output.handle) };
         self.queryBackground() catch {};

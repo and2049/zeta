@@ -102,6 +102,7 @@ pub fn snapshotPage(rt: *Runtime, arena: Allocator, id: []const u8, before: ?[]c
         .messages = page,
         .inflight = if (entry.draft) |draft| try copyMessage(arena, draft) else null,
         .nextBefore = if (start > 0) try arena.dupe(u8, history[start].id) else null,
+        .shell = if (entry.shell) |running| .{ .id = try arena.dupe(u8, running.id), .command = try arena.dupe(u8, running.command), .startedAt = running.startedAt } else null,
     };
 }
 
@@ -129,9 +130,10 @@ pub fn listSessions(rt: *Runtime, arena: Allocator, location: ?[]const u8, query
     while (it.next()) |entry| {
         // Includes restored legacy logs whose only records are a header or updates.
         entry.*.session.mutex.lockUncancelable(rt.io);
-        const has_messages = entry.*.session.messages.items.len != 0;
+        const history = entry.*.session.messages.items;
+        const updated: ?i64 = if (history.len == 0) null else history[history.len - 1].completedAt orelse history[history.len - 1].timestamp;
         entry.*.session.mutex.unlock(rt.io);
-        if (!has_messages) continue;
+        if (updated == null) continue;
         const info = entry.*.session.info;
         if (location) |filter| if (!std.mem.eql(u8, filter, info.location)) continue;
         if (query) |text| if (!@import("session_search.zig").matches(entry.*.session, text)) continue;
@@ -142,10 +144,13 @@ pub fn listSessions(rt: *Runtime, arena: Allocator, location: ?[]const u8, query
             .title = if (info.title) |title| try arena.dupe(u8, title) else null,
             .forkedFrom = if (info.forkedFrom) |v| try arena.dupe(u8, v) else null,
             .forkedAt = if (info.forkedAt) |v| try arena.dupe(u8, v) else null,
+            .updated = updated,
         });
     }
+    // Most recently active first.
     std.mem.sort(@import("session.zig").Info, result.items, {}, struct {
         fn less(_: void, a: @import("session.zig").Info, b: @import("session.zig").Info) bool {
+            if (a.updated.? != b.updated.?) return a.updated.? > b.updated.?;
             if (a.created != b.created) return a.created > b.created;
             return std.mem.lessThan(u8, b.id, a.id);
         }
@@ -220,6 +225,7 @@ pub fn deleteSession(rt: *Runtime, id: []const u8) !void {
     entry.inbox.deinit();
     if (entry.pending_options) |pending| freeOverrides(rt, pending);
     freeOverrides(rt, entry.overrides);
+    @import("shell.zig").drop(rt, entry);
     entry.session.destroy(rt.gpa, rt.io);
     rt.gpa.destroy(entry);
 }
@@ -231,4 +237,35 @@ pub fn freeOverrides(rt: *Runtime, opts: config.Options) void {
         if (env.profile) |v| rt.gpa.free(v);
         if (env.model) |v| rt.gpa.free(v);
     }
+}
+
+test "sessions are listed by their latest message, not by when they were made" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const base = buf[0..try tmp.dir.realPath(io, &buf)];
+    var bus: @import("bus.zig").Bus = .init(gpa, io);
+    defer bus.deinit();
+    var registry: @import("plugin").Registry = .init(gpa, io);
+    defer registry.deinit();
+    var env: std.process.Environ.Map = .init(gpa);
+    defer env.deinit();
+    var rt: Runtime = .init(gpa, io, &bus, &registry, &env, .{ .config_dir = base, .sessions_dir = base });
+    defer rt.deinit();
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const older = try a.dupe(u8, (try rt.createSession(base)).id);
+    const newer = try a.dupe(u8, (try rt.createSession(base)).id);
+    try rt.sessions.get(older).?.session.append(.{ .id = "m1", .role = .user, .content = &.{.{ .text = "a" }}, .timestamp = 100 });
+    try rt.sessions.get(newer).?.session.append(.{ .id = "m2", .role = .user, .content = &.{.{ .text = "b" }}, .timestamp = 200 });
+    try std.testing.expectEqualStrings(newer, (try rt.listSessions(a, base, null))[0].id);
+    // The older session is used again: its reply finishes last.
+    try rt.sessions.get(older).?.session.append(.{ .id = "m3", .role = .assistant, .content = &.{.{ .text = "c" }}, .timestamp = 150, .completedAt = 900 });
+    const listed = try rt.listSessions(a, base, null);
+    try std.testing.expectEqualStrings(older, listed[0].id);
+    try std.testing.expectEqual(@as(?i64, 900), listed[0].updated);
+    try std.testing.expectEqual(@as(?i64, 200), listed[1].updated);
 }

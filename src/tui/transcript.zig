@@ -7,8 +7,9 @@ const md = @import("markdown.zig");
 const A = std.mem.Allocator;
 /// `notice`: a one-line note the client added, e.g. a moved session.
 /// `compaction`: a summary of older history. `turn_end`: how long a turn
-/// took (`text` is the line).
-pub const Kind = enum { user, assistant, reasoning, tool, notice, compaction, turn_end };
+/// took (`text` is the line). `shell`: a command the user ran (`text`)
+/// and what it printed (`output`).
+pub const Kind = enum { user, assistant, reasoning, tool, notice, compaction, turn_end, shell };
 pub const Change = struct {
     path: []const u8,
     before: []const u8,
@@ -34,6 +35,8 @@ pub const Entry = struct {
 pub const Options = struct { width: usize, expand_reasoning: bool = false, expand_tools: bool = false, expand_compaction: bool = false };
 
 const max_output_lines = 40;
+/// A command the user ran shows this much output until tools are expanded.
+const shell_output_lines = 20;
 const max_argument_lines = 12;
 const max_diff_lines = 24;
 
@@ -52,8 +55,8 @@ pub fn render(a: A, entries: []const Entry, options: Options) ![]p.Line {
                 try b.newline();
                 var parts = std.mem.splitScalar(u8, std.mem.trim(u8, entry.text, "\r\n"), '\n');
                 while (parts.next()) |part| {
-                    try b.add(" ", .normal);
-                    try b.wrap(part, .user, inner, " ");
+                    try b.pad(" ", .normal);
+                    try b.wrapLinked(part, .user, .link, inner, " ");
                     try b.newline();
                 }
                 try b.newline();
@@ -62,22 +65,30 @@ pub fn render(a: A, entries: []const Entry, options: Options) ![]p.Line {
             .assistant => {
                 const rendered = try md.render(a, std.mem.trim(u8, entry.text, "\r\n"), inner);
                 defer p.freeLines(a, rendered);
-                for (rendered) |line| {
-                    for (line.spans) |span| try b.add(span.text, span.style);
-                    try b.newline();
-                }
+                try b.extend(rendered);
             },
             .reasoning => try disclosure(&b, "Thinking", entry.text, .reasoning, options.expand_reasoning, options.width),
             .compaction => try disclosure(&b, entry.label, entry.text, .muted, options.expand_compaction, options.width),
             .turn_end => {
-                try b.add(" ", .normal);
+                try b.pad(" ", .normal);
                 try b.add(entry.text, if (entry.failed) .failure else if (entry.stopped) .warning else .muted);
                 try b.newline();
             },
             .tool => try tool(&b, entry, options),
+            .shell => {
+                b.surface = true;
+                try b.newline();
+                try b.pad(" ", .normal);
+                try b.add("! ", if (entry.failed) .failure else .accent);
+                try b.wrapLinked(std.mem.trim(u8, entry.text, "\r\n"), .user, .link, inner, "   ");
+                try b.newline();
+                try b.newline();
+                b.surface = false;
+                try block(&b, entry.output, .tool, if (options.expand_tools) std.math.maxInt(usize) else shell_output_lines, options.width);
+            },
             .notice => {
                 try b.add(" → ", .muted);
-                try b.wrap(std.mem.trim(u8, entry.text, " \t\r\n"), .muted, options.width, "   ");
+                try b.wrapLinked(std.mem.trim(u8, entry.text, " \t\r\n"), .muted, .link, options.width, "   ");
                 try b.newline();
             },
         }
@@ -104,8 +115,8 @@ fn disclosure(b: *p.Builder, label: []const u8, text: []const u8, style: p.Style
     try b.newline();
     var parts = std.mem.splitScalar(u8, body, '\n');
     while (parts.next()) |part| {
-        try b.add("   ", .normal);
-        try b.wrap(part, style, width -| 1, "   ");
+        try b.pad("   ", .normal);
+        try b.wrapLinked(part, style, .link, width -| 1, "   ");
         try b.newline();
     }
 }
@@ -155,7 +166,7 @@ fn tail(b: *p.Builder, text: []const u8, style: p.Style, width: usize) !void {
 }
 
 fn tool(b: *p.Builder, entry: Entry, options: Options) !void {
-    try b.add(" ", .normal);
+    try b.pad(" ", .normal);
     if (entry.pending) try b.add("○ ", .muted) else if (entry.failed) try b.add("✗ ", .failure) else try b.add("✓ ", .success);
     try b.add(entry.label, .tool_name);
     const summary = if (entry.summary.len > 0) entry.summary else firstLine(entry.text);
@@ -167,7 +178,7 @@ fn tool(b: *p.Builder, entry: Entry, options: Options) !void {
     if (!options.expand_tools) {
         // A failure says why even when collapsed.
         if (entry.failed and !entry.pending) {
-            try b.add("   ", .normal);
+            try b.pad("   ", .normal);
             try clipped(b, firstLine(entry.output), .failure, options.width);
             try b.newline();
         }
@@ -187,8 +198,8 @@ fn block(b: *p.Builder, text: []const u8, style: p.Style, limit: usize, width: u
     var total: usize = 0;
     while (parts.next()) |part| : (total += 1) {
         if (shown == limit) continue;
-        try b.add("   ", .normal);
-        try b.wrap(part, style, width, "   ");
+        try b.pad("   ", .normal);
+        try b.wrapLinked(part, style, .link, width, "   ");
         try b.newline();
         shown += 1;
     }
@@ -239,9 +250,9 @@ fn renderChange(b: *p.Builder, change: Change, width: usize) !void {
                 clipped_diff = true;
                 break;
             }
-            try b.add("   ", .normal);
+            try b.pad("   ", .normal);
             try b.add(part.marker, part.style);
-            try b.wrap(line, part.style, width, "     ");
+            try b.wrapLinked(line, part.style, part.style, width, "     ");
             try b.newline();
         }
     }
@@ -328,6 +339,25 @@ test "disclosures show the tail collapsed and everything expanded" {
     const body = try rowText(expanded, 1);
     defer a.free(body);
     try std.testing.expectEqualStrings("   first part", body);
+}
+
+test "a command the user ran shows its output, cut until expanded" {
+    const a = std.testing.allocator;
+    const entry: Entry = .{ .kind = .shell, .text = "seq 30", .output = "1\n" ** 30 ++ "Command exited with code 1", .failed = true };
+    const short = try render(a, &.{entry}, .{ .width = 40 });
+    defer p.freeLines(a, short);
+    const head = try rowText(short, 1);
+    defer a.free(head);
+    try std.testing.expectEqualStrings(" ! seq 30", head);
+    try std.testing.expect(short[1].surface and !short[3].surface);
+    const more = try rowText(short, short.len - 1);
+    defer a.free(more);
+    try std.testing.expectEqualStrings("   … 11 more lines", more);
+    const all = try render(a, &.{entry}, .{ .width = 40, .expand_tools = true });
+    defer p.freeLines(a, all);
+    const last = try rowText(all, all.len - 1);
+    defer a.free(last);
+    try std.testing.expectEqualStrings("   Command exited with code 1", last);
 }
 
 test "a notice is one muted line" {

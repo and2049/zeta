@@ -6,6 +6,7 @@ const proto = @import("proto");
 const Allocator = std.mem.Allocator;
 const Message = proto.Message;
 const Content = proto.message.Content;
+const shell = @import("shell.zig");
 
 /// A text-only model sees a visible error in place of each image, so older
 /// image turns never break the session. The log keeps the images; new image
@@ -31,6 +32,10 @@ pub fn forModel(arena: Allocator, log: []const Message, target: Target) ![]const
     for (messages, 0..) |m, i| if (!failedAttempt(messages, i)) try kept.append(arena, m);
     const out = kept.items;
     for (out) |*m| {
+        if (shell.is(m.*)) {
+            m.content = try arena.dupe(Content, &.{.{ .text = try shell.modelText(arena, m.*) }});
+            continue;
+        }
         if (!adapts(m.*, target)) continue;
         const content = try arena.dupe(Content, m.content);
         const foreign = !sameModel(m.*, target);
@@ -58,6 +63,7 @@ pub fn failedAttempt(messages: []const Message, index: usize) bool {
 }
 
 fn adapts(m: Message, target: Target) bool {
+    if (shell.is(m)) return true;
     for (m.content) |part| switch (part) {
         .image => if (!target.accepts_images) return true,
         .thinking => |t| if (t.signature != null and !sameModel(m, target)) return true,
@@ -95,6 +101,18 @@ test "signatures from another model and unreadable images are dropped" {
     try std.testing.expect(out[1].content[0].thinking.signature == null);
     try std.testing.expectEqualStrings("keep", out[2].content[0].thinking.signature.?);
     try std.testing.expectEqualStrings("s", messages[1].content[0].thinking.signature.?);
+}
+
+test "a command the user ran reaches the model as one explained text" {
+    var state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer state.deinit();
+    const messages: []const Message = &.{
+        .{ .id = "s", .role = .user, .timestamp = 0, .origin = shell.origin, .content = &.{ .{ .text = "git status" }, .{ .text = "clean" } } },
+    };
+    const out = try forModel(state.allocator(), messages, .{ .provider = "p", .model = "m", .accepts_images = true });
+    try std.testing.expectEqual(@as(usize, 1), out[0].content.len);
+    try std.testing.expect(std.mem.indexOf(u8, out[0].content[0].text, "Command:\ngit status\n\nOutput:\nclean") != null);
+    try std.testing.expectEqual(@as(usize, 2), messages[0].content.len);
 }
 
 test "a failed attempt that was retried is left out" {

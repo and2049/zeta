@@ -10,4 +10,5 @@ test {
     _ = @import("auth_flow.zig");
     _ = @import("auth_routes.zig");
     _ = @import("limits.zig");
+    _ = @import("shell.zig");
 }

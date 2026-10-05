@@ -78,6 +78,11 @@ pub const types = struct {
     /// answered, expired or withdrawn.
     pub const question_asked = "question.asked";
     pub const question_resolved = "question.resolved";
+    /// The user ran a shell command in the session: `{id, command,
+    /// startedAt}`, then `{id, command, output, exitCode, stopped,
+    /// truncated}` (`exitCode` null when a signal or a stop ended it).
+    pub const shell_started = "shell.started";
+    pub const shell_ended = "shell.ended";
     /// A plugin tells the user something: `{source, message, level}`.
     pub const plugin_notice = "plugin.notice";
 };

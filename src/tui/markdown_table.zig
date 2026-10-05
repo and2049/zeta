@@ -172,7 +172,7 @@ fn row(b: *p.Builder, cols: []const []const u8, aligns: []const Align, widths: [
                 .center => gap / 2,
             };
             try pad(b, 1 + before);
-            for (spans) |span| try b.add(span.text, span.style);
+            for (spans) |span| try b.addSpan(span);
             try pad(b, 1 + gap - before);
             try b.add("│", .muted);
         }

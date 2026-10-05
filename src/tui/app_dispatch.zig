@@ -8,7 +8,8 @@ const auth = @import("app_auth.zig");
 
 pub fn dispatch(app: *App, registry: *const plugin.Registry, worker: *Worker, req: actions.Request) !void {
     switch (req) {
-        .none, .older, .select_session => {},
+        // The run loop copies and opens links: it has the laid-out transcript.
+        .none, .older, .select_session, .copy_selection, .open_at => {},
         .command => |c| {
             const command = registry.command(c.name) orelse return;
             var ctx: plugin.Context = .{ .app = app, .worker = worker };
@@ -36,6 +37,8 @@ pub fn dispatch(app: *App, registry: *const plugin.Registry, worker: *Worker, re
             } else try app.deferSend(s.text, if (s.delivery == .steer) .steer else .queue);
         },
         .abort => if (app.session) |id| try worker.submit(.{ .kind = .abort, .id = id }),
+        .shell => |command| if (app.session) |id| try worker.submit(.{ .kind = .shell, .id = id, .text = command }) else app.say("Not connected yet", .{}),
+        .stop_shell => if (app.session) |id| try worker.submit(.{ .kind = .stop_shell, .id = id }),
         .answer_question => {}, // The run loop sends this on the independent answers queue.
     }
 }

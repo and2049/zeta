@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sandbox, zetaBin } from "./harness";
 import { FakeOpenAI } from "./fake-openai";
@@ -388,5 +388,133 @@ test("tui.jsonc can show thinking expanded from the start", async () => {
   await waitFor(() => t.screen().includes("Answer"), "reply");
   expect(t.screen()).toContain("▼ Thinking:");
   expect(t.screen()).toContain("EXPANDED_REASONING");
+  expect(await t.quit()).toBe(0);
+}, 15000);
+
+/** Puts a stand-in clipboard program on PATH that saves what it is given. */
+function fakeClipboard() {
+  const bin = join(sb.root, "bin");
+  const saved = join(sb.root, "clipboard.txt");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "wl-copy"), `#!/bin/sh\ncat > "${saved}"\n`, { mode: 0o755 });
+  sb.env.PATH = `${bin}:${sb.env.PATH}`;
+  sb.env.WAYLAND_DISPLAY = "test";
+  return saved;
+}
+/** The screen cell (zero-based) where `text` starts. */
+function cell(t: Tui, text: string) {
+  const rows = t.screen().split("\n");
+  const y = rows.findIndex((row) => row.includes(text));
+  return { x: rows[y].indexOf(text), y };
+}
+const mouse = (code: number, at: { x: number; y: number }, release = false) => `\x1b[<${code};${at.x + 1};${at.y + 1}${release ? "m" : "M"}`;
+const terminalClipboard = (t: Tui) => [...t.output.matchAll(/\x1b\]52;c;([A-Za-z0-9+/=]*)\x1b\\/g)].map((m) => atob(m[1]));
+
+test("TUI copies dragged transcript text, rejoining wrapped rows", async () => {
+  const saved = fakeClipboard();
+  const t = await start();
+  const paragraph = `ALPHA ${"word ".repeat(20)}OMEGA`;
+  llm.reply({ text: `${paragraph}\n\n\`\`\`sh\necho CODE_LINE\n\`\`\`` });
+  t.send("go\r");
+  await waitFor(() => t.screen().includes("OMEGA") && t.screen().includes("CODE_LINE"), "reply");
+  const from = cell(t, "ALPHA"), to = cell(t, "OMEGA");
+  expect(to.y).toBe(from.y + 1);
+  t.send(mouse(0, from) + mouse(32, { x: to.x + 4, y: to.y }) + mouse(0, { x: to.x + 4, y: to.y }, true));
+  await waitFor(() => existsSync(saved) && readFileSync(saved, "utf8") === paragraph, "clipboard program");
+  expect(terminalClipboard(t).at(-1)).toBe(paragraph);
+  await waitFor(() => t.screen().includes("Copied to clipboard"), "status");
+
+  // A double click picks a word; the code block's gutter is not copied.
+  const code = cell(t, "echo CODE_LINE");
+  const word = { x: code.x + 7, y: code.y };
+  t.send(mouse(0, word) + mouse(0, word, true) + mouse(0, word) + mouse(0, word, true));
+  await waitFor(() => readFileSync(saved, "utf8") === "CODE_LINE", "double click");
+  t.send(mouse(0, { x: 0, y: code.y }) + mouse(32, { x: 60, y: code.y }) + mouse(0, { x: 60, y: code.y }, true));
+  await waitFor(() => readFileSync(saved, "utf8") === "echo CODE_LINE", "code without its gutter");
+  expect(await t.quit()).toBe(0);
+  expect(t.output).toContain("\x1b[?1002l");
+}, 15000);
+
+test("with copy set to manual a right click copies the selection", async () => {
+  const saved = fakeClipboard();
+  writeFileSync(join(sb.env.XDG_CONFIG_HOME, "zeta", "tui.jsonc"), '{ "copy": "manual" }');
+  const t = await start();
+  llm.reply({ text: "MANUAL_COPY text" });
+  t.send("go\r");
+  await waitFor(() => t.screen().includes("MANUAL_COPY"), "reply");
+  const from = cell(t, "MANUAL_COPY");
+  const to = { x: from.x + 10, y: from.y };
+  t.send(mouse(0, from) + mouse(32, to) + mouse(0, to, true));
+  await Bun.sleep(200);
+  expect(terminalClipboard(t)).toHaveLength(0);
+  t.send(mouse(2, to) + mouse(2, to, true));
+  await waitFor(() => existsSync(saved) && readFileSync(saved, "utf8") === "MANUAL_COPY", "right click copy");
+  expect(terminalClipboard(t)).toEqual(["MANUAL_COPY"]);
+  expect(await t.quit()).toBe(0);
+}, 15000);
+
+test("TUI opens a link when it is clicked and marks links for the terminal", async () => {
+  const bin = join(sb.root, "bin");
+  const opened = join(sb.root, "opened.txt");
+  mkdirSync(bin, { recursive: true });
+  for (const name of ["xdg-open", "open"]) writeFileSync(join(bin, name), `#!/bin/sh\nprintf '%s\\n' "$@" >> "${opened}"\n`, { mode: 0o755 });
+  sb.env.PATH = `${bin}:${sb.env.PATH}`;
+  const t = await start();
+  llm.reply({ text: "Read [the guide](https://docs.example.test/guide?a=1&b=2) or https://bare.example.test/x. Not [this](file:///etc/passwd)." });
+  t.send("links\r");
+  await waitFor(() => t.screen().includes("bare.example.test"), "reply");
+  expect(t.screen()).toContain("the guide (https://docs.example.test/guide?a=1&b=2)");
+  expect(t.output).toMatch(/\x1b\]8;id=[0-9a-f]+;https:\/\/docs\.example\.test\/guide\?a=1&b=2\x1b\\/);
+  expect(t.output).toMatch(/\x1b\]8;id=[0-9a-f]+;https:\/\/bare\.example\.test\/x\x1b\\/);
+  expect(t.output).not.toContain("file:///etc/passwd\x1b\\");
+
+  const click = (at: { x: number; y: number }) => t.send(mouse(0, at) + mouse(0, at, true));
+  const label = cell(t, "the guide");
+  click({ x: label.x + 2, y: label.y });
+  await waitFor(() => existsSync(opened) && readFileSync(opened, "utf8") === "https://docs.example.test/guide?a=1&b=2\n", "label opens its address");
+  await waitFor(() => t.screen().includes("Opened docs.example.test"), "status");
+  await Bun.sleep(450); // not a double click
+  const bare = cell(t, "https://bare.example.test/x");
+  click({ x: bare.x + 10, y: bare.y });
+  await waitFor(() => readFileSync(opened, "utf8").endsWith("https://bare.example.test/x\n"), "bare address opens");
+  await Bun.sleep(450);
+  // Plain text and other schemes open nothing.
+  click(cell(t, "Read"));
+  click(cell(t, "this"));
+  await Bun.sleep(300);
+  expect(readFileSync(opened, "utf8").trim().split("\n")).toHaveLength(2);
+  expect(terminalClipboard(t)).toHaveLength(0);
+  expect(await t.quit()).toBe(0);
+}, 15000);
+
+test("! runs a shell command without starting a turn; the next prompt carries its output", async () => {
+  const t = await start();
+  t.send("!");
+  await Bun.sleep(100);
+  t.send("echo SHELL_$((40+2))\r");
+  await waitFor(() => t.screen().includes("SHELL_42"), "command output");
+  expect(t.screen()).toContain("! echo SHELL_$((40+2))");
+  await Bun.sleep(200);
+  expect(llm.requests).toHaveLength(0);
+  // Back in the ordinary editor: this is a prompt.
+  llm.reply({ text: "I saw it" });
+  t.send("what happened?\r");
+  await waitFor(() => t.screen().includes("I saw it"), "reply");
+  expect(JSON.stringify(llm.requests[0].messages)).toContain("Output:\\nSHELL_42");
+  expect(await t.quit()).toBe(0);
+}, 15000);
+
+test("Escape stops a running shell command and keeps its output", async () => {
+  const t = await start();
+  t.send("!");
+  await Bun.sleep(100);
+  t.send("echo BEFORE_STOP; sleep 30\r");
+  await waitFor(() => t.screen().includes("Running echo BEFORE_STOP; sleep 30"), "working row");
+  await Bun.sleep(300);
+  t.send("\x1b");
+  await waitFor(() => t.screen().includes("Stopped by the user"), "stopped");
+  expect(t.screen()).toContain("BEFORE_STOP");
+  expect(t.screen()).not.toContain("Running echo");
+  expect(llm.requests).toHaveLength(0);
   expect(await t.quit()).toBe(0);
 }, 15000);

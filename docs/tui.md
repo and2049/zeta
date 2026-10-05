@@ -5,9 +5,10 @@ attaches to the shared server and uses the same HTTP/SSE API as scripts.
 
 From top to bottom:
 
-- The conversation, which scrolls. A new one shows the logo with the version
-  and the keys to get started beside it (the logo is left out when the
-  terminal is too small). Your messages sit on a slightly raised
+- The conversation, which scrolls. A new one shows the logo in the middle of
+  the left half, and the version and the keys to get started in the middle
+  of the right half (the logo is left out when the terminal is too
+  small). Your messages sit on a slightly raised
   background; tool calls take one line each with a status mark (✓ done,
   ✗ failed, ○ running). Reasoning and compaction summaries start collapsed
   to one line (`▶ Thinking: …` with the latest words). Each finished turn
@@ -37,7 +38,8 @@ and trailing commas are allowed.
 ```jsonc
 {
   "thinking": "collapsed",   // or "expanded": how reasoning starts
-  "compaction": "collapsed"  // or "expanded": how compaction summaries start
+  "compaction": "collapsed", // or "expanded": how compaction summaries start
+  "copy": "select"           // or "manual": see "Copying text"
 }
 ```
 
@@ -54,7 +56,9 @@ reported in the footer and the defaults apply.
   cannot distinguish Shift+Enter. Keys reported with modifiers (CSI u or
   xterm modifyOtherKeys) are understood, including Alt/Ctrl+Backspace to
   delete a word.
-- **Escape** dismisses a picker/completion before aborting an active turn.
+- **Escape** dismisses a picker/completion, then leaves shell mode, then
+  stops your running shell command, before aborting an active turn.
+- **!** in an empty editor starts a [shell command](#shell-commands).
 - Bracketed paste inserts text without submitting embedded newlines.
 - PageUp/PageDown and the mouse wheel scroll; End returns to live output.
 - **Ctrl+O** expands/collapses tool output; **Ctrl+T** expands/collapses
@@ -66,6 +70,66 @@ reported in the footer and the defaults apply.
   too, and runs a command that needs no arguments. Escape closes the list.
   `/name arguments` runs a prompt template; any other unknown `/name` is sent
   as ordinary text.
+
+## Shell commands
+
+Type `!` in an empty editor to run a shell command yourself: the rules
+turn yellow and a `!` marks the line. Enter runs what you typed with
+`bash` in the project directory and returns to the ordinary editor;
+Escape, Backspace on the empty line or Ctrl+C leave shell mode without
+running anything. To start a prompt with a literal `!`, type a space
+first or paste it.
+
+The command and its output appear in the conversation (the first 20 lines
+of output; Ctrl+O shows all that was kept, the last 2000 lines or 50 KB)
+and the agent sees them too, but running a command does not start a turn:
+the agent reads it with your next prompt. If a turn is running, the
+output joins it at its next step instead, like a steering message.
+
+A command may run as long as it needs. The line above the editor shows
+`Running <command>… 12s · Esc to stop`; Escape stops it and keeps what it
+printed. One command runs at a time per conversation.
+
+The command runs on the server, with the environment the server was
+started with, which may differ from this terminal's (another `PATH`, no
+activated virtualenv). It gets no input, so commands that ask questions
+fail or stop at once. Plugin hooks do not apply to commands you run.
+
+## Copying text
+
+Drag with the left mouse button over the conversation to select text; the
+selection follows the text when you scroll, and dragging past the top or
+bottom edge scrolls. A double click selects a word and a triple click a
+whole line. Releasing the button copies the selection and the footer says
+`Copied to clipboard`.
+
+The copied text is what was written, not the rows as drawn: a line that
+was wrapped to fit comes back as one line, and padding and the gutters of
+code blocks and quotes are left out.
+
+With `"copy": "manual"` in `tui.jsonc`, releasing the button leaves the
+text selected and a right click copies it. Any key removes the selection
+(Escape does only that); scrolling keeps it.
+
+The text goes to the terminal's clipboard (OSC 52, which also works over
+SSH; tmux needs `set -g set-clipboard on`) and to the desktop's clipboard
+program when one is installed: `pbcopy` on macOS, `wl-copy` under
+Wayland, `xclip` or `xsel` under X11. Selections over 100 KB only go to
+the program. Only the conversation can be selected this way; hold Shift
+while dragging for the terminal's own selection anywhere on the screen.
+
+## Links
+
+Web addresses in the conversation are underlined: Markdown links (shown as
+`text (address)`) and bare `http://` and `https://` addresses in replies,
+your own messages, expanded reasoning and expanded tool output. A click
+opens one in your browser (`xdg-open`, or `open` on macOS) and the footer
+says which site was opened. Other kinds of address, such as `file:` or
+`mailto:`, are shown but not opened.
+
+Links are also marked for the terminal (OSC 8), so terminals that support
+it show the address on hover, and their own way of opening a link (often
+Shift+click) works too.
 
 ## Sessions and models
 

@@ -26,6 +26,8 @@ pub const Options = struct {
     /// `COLORTERM`: `truecolor` or `24bit` allow 24-bit backgrounds, else
     /// the nearest of 256 colors is used.
     colorterm: ?[]const u8 = null,
+    /// The display servers present, for the clipboard program to use.
+    clipboard: platform.clipboard.Hosts = .{},
     /// How to start the server when none answers (a standalone client's
     /// private one); the shared server by default.
     serve: []const []const u8 = &.{"serve"},
@@ -55,6 +57,7 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io, options: Options) !void {
     const loaded = @import("settings.zig").load(arena, io, options.paths.config);
     app.show_reasoning = loaded.settings.thinking == .expanded;
     app.show_compaction = loaded.settings.compaction == .expanded;
+    app.selection.copy_on_release = loaded.settings.copy == .select;
     if (loaded.problem) |problem| app.say("{s}", .{problem});
     app.clock = @import("clock.zig").Clock.load(arena, io);
     app.home = options.home orelse "";
@@ -77,6 +80,7 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io, options: Options) !void {
     worker.environment = if (options.environment) |env| .{ .model = env.model, .profile = env.profile } else null;
     worker.profile = options.profile;
     worker.model = options.model;
+    worker.clipboard = options.clipboard;
     try worker.start();
     // Replies to plugins' questions go on their own queue: a slash command
     // the main queue is waiting on may be what asked.
@@ -140,6 +144,8 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io, options: Options) !void {
         changed = false;
         if (terminal.pollResize()) |size| try screen.resize(size.columns, size.rows);
         frame.now_ms = std.Io.Clock.real.now(io).toMilliseconds();
+        app.selection.now_ms = frame.now_ms;
+        @import("actions_mouse.zig").tick(&app);
         const rendered = try view.drawCached(&screen, &app, frame, &render_cache);
         defer gpa.free(rendered);
         try terminal.write(rendered);
@@ -150,9 +156,15 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io, options: Options) !void {
             try parser.feed(buf[0..count]);
             while (try parser.next()) |ev| {
                 defer ev.deinit(gpa);
-                try key(&env, &answers, input_arena.allocator(), &input_arena, ev);
+                switch (try key(&env, &answers, input_arena.allocator(), &input_arena, ev)) {
+                    .copy_selection => try copySelection(&env, &render_cache, &terminal),
+                    .open_at => |point| if (@import("selection.zig").linkAt(render_cache.lines orelse &.{}, point)) |url| {
+                        if (@import("links.zig").openable(url)) try worker.submit(.{ .kind = .open_link, .text = url });
+                    },
+                    else => {},
+                }
             }
-        } else if (parser.flushEscape()) |ev| try key(&env, &answers, input_arena.allocator(), &input_arena, ev);
+        } else if (parser.flushEscape()) |ev| _ = try key(&env, &answers, input_arena.allocator(), &input_arena, ev);
     }
 }
 
@@ -161,7 +173,24 @@ fn truecolor(colorterm: ?[]const u8) bool {
     return std.mem.eql(u8, value, "truecolor") or std.mem.eql(u8, value, "24bit");
 }
 
-fn key(env: *results.Env, answers: *Worker, a: std.mem.Allocator, input_arena: *std.heap.ArenaAllocator, ev: input.Event) !void {
+/// Sends the selected text to the terminal's clipboard now and to the
+/// desktop's in the background.
+fn copySelection(env: *results.Env, cache: *const view.Cache, terminal: *platform.tui_terminal.Terminal) !void {
+    const selection = @import("selection.zig");
+    const lines = cache.lines orelse return;
+    const range = env.app.selection.range(lines) orelse return;
+    const text = try selection.text(env.gpa, lines, range);
+    defer env.gpa.free(text);
+    if (std.mem.trim(u8, text, " \n").len == 0) return;
+    const sequence = try platform.clipboard.osc52(env.gpa, text);
+    defer if (sequence) |bytes| env.gpa.free(bytes);
+    if (sequence) |bytes| try terminal.write(bytes);
+    try env.worker.submit(.{ .kind = .copy, .text = text, .extra = if (sequence != null) "terminal" else "" });
+    env.app.say("Copied to clipboard", .{});
+}
+
+/// Returns what the event asked for, after acting on it.
+fn key(env: *results.Env, answers: *Worker, a: std.mem.Allocator, input_arena: *std.heap.ArenaAllocator, ev: input.Event) !actions.Request {
     _ = input_arena.reset(.retain_capacity);
     const app = env.app;
     const req = try actions.handle(app, env.registry, a, ev);
@@ -170,7 +199,7 @@ fn key(env: *results.Env, answers: *Worker, a: std.mem.Allocator, input_arena: *
         const content = if (answer.content) |v| try std.json.Stringify.valueAlloc(a, v, .{}) else "";
         try answers.submit(.{ .kind = .answer_question, .id = answer.id, .text = answer.action, .extra = content });
         app.resolve(answer.id);
-        return;
+        return req;
     }
     try dispatch(app, env.registry, env.worker, req);
     switch (req) {
@@ -180,6 +209,7 @@ fn key(env: *results.Env, answers: *Worker, a: std.mem.Allocator, input_arena: *
         .select_session => |id| try env.open(id),
         else => {},
     }
+    return req;
 }
 
 /// Status lines and automatic replies for this session's events.

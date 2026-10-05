@@ -14,11 +14,12 @@ Never edit a log while a server has it open. To change a session, use the comman
 
 | Task | CLI | Terminal client | HTTP |
 |---|---|---|---|
-| list this project's sessions, newest first | `zeta sessions` (`--all` for every project) | `/resume` | `GET /sessions?location=` |
+| list this project's sessions, most recently active first | `zeta sessions` (`--all` for every project) | `/resume` | `GET /sessions?location=` |
 | find sessions mentioning text | `zeta sessions <text>` | | `GET /sessions?q=` |
 | continue the latest, or a given one | `zeta run -c …`, `zeta run --session <id> …` | `/resume` | `POST /sessions/:id/prompt` |
 | export as JSONL | `zeta sessions export <id>` | | `GET /sessions/:id/export` |
 | undo the file changes of the latest reply | `zeta undo` | `/undo` | `POST /sessions/:id/undo` |
+| run a shell command yourself and share its output | | `!` | `POST /sessions/:id/shell` |
 | tokens and cost | `zeta usage` | footer | `GET /sessions/:id/usage`, `GET /usage` |
 | change model, thinking level or title | `zeta run --model …` | `/model`, `/rename` | `PATCH /sessions/:id` |
 | summarize the history | | `/compact [focus]` | `POST /sessions/:id/compact` |
@@ -34,4 +35,4 @@ A new session uses `model` from config, else the model last picked anywhere (`<s
 
 ## Reading a log
 
-The first line is a `session` header (`id`, `location`, `title`, and the model selection under `metadata`). Each message line is `{"type": "message", "message": {…}}`; a message has `role` (`user`, `assistant`, `tool_result`), `content` blocks (`text`, `thinking`, `toolCall`, `image`) and an `id`. User messages zeta added itself carry `origin`: `compaction` (a summary), `hook` (hook context or a stop continuation), `undo` or `move`. Assistant messages carry `usage`, `stopReason`, `systemHash` (the `system` line they were sent with) and `completedAt`. The model's view after a compaction starts at the summary and continues from its `firstKeptId`.
+The first line is a `session` header (`id`, `location`, `title`, and the model selection under `metadata`). Each message line is `{"type": "message", "message": {…}}`; a message has `role` (`user`, `assistant`, `tool_result`), `content` blocks (`text`, `thinking`, `toolCall`, `image`) and an `id`. User messages zeta added itself carry `origin`: `compaction` (a summary), `hook` (hook context or a stop continuation), `undo`, `move`, or `shell` (a command the user ran: two `text` blocks, the command and its output). Assistant messages carry `usage`, `stopReason`, `systemHash` (the `system` line they were sent with) and `completedAt`. The model's view after a compaction starts at the summary and continues from its `firstKeptId`.

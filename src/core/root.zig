@@ -31,6 +31,7 @@ pub const questions = @import("questions.zig");
 pub const usage = @import("usage.zig");
 pub const session_search = @import("session_search.zig");
 pub const undo = @import("undo.zig");
+pub const shell = @import("shell.zig");
 pub const session_move = @import("session_move.zig");
 pub const session_storage = @import("session_storage.zig");
 pub const Loop = loop.Loop;

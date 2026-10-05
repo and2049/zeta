@@ -16,6 +16,7 @@ const Loop = @import("loop.zig").Loop;
 const config = @import("config.zig");
 const prompt_mod = @import("prompt.zig");
 const types = proto.event.types;
+const shell = @import("shell.zig");
 
 pub const Snapshot = struct {
     /// Subscribe first; discard frames with seq <= revision. `inbox` includes
@@ -32,6 +33,8 @@ pub const Snapshot = struct {
     inflight: ?proto.Message,
     /// Cursor for the next, older page; null at the beginning of history.
     nextBefore: ?[]const u8,
+    /// The shell command the user is running in the session, if any.
+    shell: ?shell.Running = null,
 };
 
 pub const Context = struct {
@@ -83,6 +86,8 @@ pub const Entry = struct {
     title_running: bool = false,
     /// Borrowed from the active loop arena; accessed only under rt.mutex.
     draft: ?proto.Message = null,
+    /// The user's running shell command; strings owned by the runtime.
+    shell: ?shell.Running = null,
 };
 
 pub const Options = struct {
@@ -131,6 +136,7 @@ pub fn deinit(rt: *Runtime) void {
             if (current.model) |model| rt.gpa.free(model);
         }
         if (e.*.pending_options) |pending| @import("runtime_state.zig").freeOverrides(rt, pending);
+        shell.drop(rt, e.*);
         e.*.session.destroy(rt.gpa, rt.io);
         rt.gpa.destroy(e.*);
     }
@@ -164,6 +170,8 @@ pub const removeInboxItemOwned = @import("runtime_actions.zig").removeInboxItemO
 pub const Update = @import("runtime_actions.zig").Update;
 pub const requestTitle = @import("runtime_title.zig").requestTitle;
 pub const command = @import("commands.zig").run;
+pub const shellStart = shell.start;
+pub const shellFinish = shell.finish;
 
 /// Queues a compaction of the session's history (after anything already
 /// waiting), with optional instructions for the summary. Returns its inbox id.
@@ -225,6 +233,7 @@ fn work(rt: *Runtime, entry: *Entry) Io.Cancelable!void {
             error.Canceled => {
                 rt.mutex.lockUncancelable(rt.io);
                 if (!entry.stopping) {
+                    shell.flush(rt, entry) catch {};
                     entry.inbox.clear();
                     rt.publishInbox(entry);
                     entry.running = false;
@@ -237,6 +246,8 @@ fn work(rt: *Runtime, entry: *Entry) Io.Cancelable!void {
         };
         rt.mutex.lockUncancelable(rt.io);
         defer rt.mutex.unlock(rt.io);
+        // Results of the user's commands that no step took need no turn.
+        shell.flush(rt, entry) catch {};
         if (entry.inbox.isEmpty()) {
             entry.running = false;
             rt.bus.publishValue(types.session_idle, entry.session.info.id, entry.session.info.location, .{}) catch {};
@@ -329,6 +340,7 @@ fn fail(rt: *Runtime, entry: *Entry, err: anyerror) void {
     var arena: std.heap.ArenaAllocator = .init(rt.gpa);
     defer arena.deinit();
     const a = arena.allocator();
+    shell.flush(rt, entry) catch {};
     const dropped = if (entry.inbox.snapshot(a)) |items| items.len else |_| 0;
     entry.inbox.clear();
     rt.publishInbox(entry);
@@ -364,4 +376,5 @@ test {
     _ = @import("hooks.zig");
     _ = @import("runtime_model.zig");
     _ = @import("runtime_model_test.zig");
+    _ = shell;
 }

@@ -87,9 +87,10 @@ fn usage(out: *Io.Writer) !u8 {
     return 2;
 }
 
-/// `<id>  <YYYY-MM-DD HH:MM> UTC  <title>` (and the project with `--all`).
+/// `<id>  <YYYY-MM-DD HH:MM> UTC  <title>` (and the project with `--all`);
+/// the time is the session's latest activity.
 fn line(out: *Io.Writer, s: api.Info, all: bool) !void {
-    const secs: u64 = @intCast(@max(@divFloor(s.created, 1000), 0));
+    const secs: u64 = @intCast(@max(@divFloor(s.updated orelse s.created, 1000), 0));
     const day = (std.time.epoch.EpochSeconds{ .secs = secs }).getEpochDay();
     const ymd = day.calculateYearDay();
     const md = ymd.calculateMonthDay();

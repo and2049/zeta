@@ -136,6 +136,13 @@ pub fn serialize(arena: Allocator, messages: []const Message, indexes: []const u
     const w = &out.writer;
     for (indexes) |i| {
         const m = messages[i];
+        if (@import("shell.zig").is(m)) {
+            const output = m.content[1].text;
+            var cut = @min(output.len, tool_result_chars);
+            while (cut > 0 and cut < output.len and (output[cut] & 0xc0) == 0x80) cut -= 1;
+            try w.print("[User ran a shell command]: {s}\n[Its output]: {s}\n", .{ m.content[0].text, output[0..cut] });
+            continue;
+        }
         for (m.content) |part| switch (part) {
             .text => |t| switch (m.role) {
                 .user => try w.print("[User]: {s}\n", .{t}),

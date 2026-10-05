@@ -48,19 +48,21 @@ pub fn rowCount(text: []const u8, cols: usize) usize {
 
 /// Shows the last `max_rows` rows, or earlier ones when the cursor is above
 /// them. Returns the terminal cursor position.
-pub fn draw(screen: *Screen, text: []const u8, cursor_byte: usize, top: usize, max_rows: usize) Cursor {
-    const content_width = @max(@as(usize, 1), screen.cols -| 2 * pad);
-    const shape = layout(text, screen.cols, cursor_byte);
+/// `indent` columns before the text are left for a marker.
+pub fn draw(screen: *Screen, text: []const u8, cursor_byte: usize, top: usize, max_rows: usize, indent: usize) Cursor {
+    const left = pad + indent;
+    const content_width = @max(@as(usize, 1), screen.cols -| (2 * pad + indent));
+    const shape = layout(text, screen.cols -| indent, cursor_byte);
     const first = @min(shape.rows -| max_rows, shape.cursor_row);
     var row: usize = 0;
     var col: usize = 0;
     var byte: usize = 0;
-    var cursor: Cursor = .{ .x = pad, .y = top };
+    var cursor: Cursor = .{ .x = left, .y = top };
     while (byte < text.len) {
         const end = width.clusterEnd(text, byte);
         const r = text[byte..end];
         if (r.len == 1 and r[0] == '\n') {
-            if (byte == cursor_byte) cursor = .{ .x = pad + col, .y = top + row -| first };
+            if (byte == cursor_byte) cursor = .{ .x = left + col, .y = top + row -| first };
             row += 1;
             col = 0;
             byte = end;
@@ -71,12 +73,12 @@ pub fn draw(screen: *Screen, text: []const u8, cursor_byte: usize, top: usize, m
             row += 1;
             col = 0;
         }
-        if (byte == cursor_byte) cursor = .{ .x = pad + col, .y = top + row -| first };
-        if (row >= first and row - first < max_rows) screen.drawText(pad + col, top + row - first, r);
+        if (byte == cursor_byte) cursor = .{ .x = left + col, .y = top + row -| first };
+        if (row >= first and row - first < max_rows) screen.drawText(left + col, top + row - first, r);
         col += columns;
         byte = end;
     }
-    if (byte == cursor_byte) cursor = .{ .x = pad + col, .y = top + row -| first };
+    if (byte == cursor_byte) cursor = .{ .x = left + col, .y = top + row -| first };
     return .{ .x = @min(cursor.x, screen.cols - 1), .y = @min(@max(cursor.y, top), top + max_rows - 1) };
 }
 
@@ -85,10 +87,10 @@ test "the viewport follows a cursor above the last rows" {
     defer screen.deinit();
     const text = "one\ntwo\nthree\nfour\nfive";
     // Cursor at the end: the last two rows are shown.
-    try std.testing.expectEqual(Cursor{ .x = 5, .y = 1 }, draw(&screen, text, text.len, 0, 2));
+    try std.testing.expectEqual(Cursor{ .x = 5, .y = 1 }, draw(&screen, text, text.len, 0, 2, 0));
     // Cursor on "two": the window scrolls up to start at that row.
     const at_two = std.mem.indexOf(u8, text, "two").?;
-    try std.testing.expectEqual(Cursor{ .x = 1, .y = 0 }, draw(&screen, text, at_two + 0, 0, 2));
+    try std.testing.expectEqual(Cursor{ .x = 1, .y = 0 }, draw(&screen, text, at_two + 0, 0, 2, 0));
     try std.testing.expectEqual(@as(usize, 5), rowCount(text, 20));
 }
 

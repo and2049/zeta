@@ -270,3 +270,37 @@ test "a long picker scrolls to keep the highlight visible" {
     _ = try @import("actions.zig").handle(&f.app, &f.registry, arena.allocator(), .{ .key = .up });
     try std.testing.expectEqual(@as(usize, 38), f.app.picker_selected);
 }
+
+test "dragged text is highlighted until the rows are laid out again" {
+    var f = try Fixture.init(40, 14);
+    defer f.deinit();
+    try f.app.appendMessage("user", "hello");
+    try f.app.appendMessage("assistant", "Hi there");
+    var cache = view.Cache.init(std.testing.allocator);
+    defer cache.deinit();
+    try f.draw();
+    var reply: usize = 0;
+    for (0..14) |y| {
+        const text = try f.row(y);
+        defer std.testing.allocator.free(text);
+        if (std.mem.eql(u8, text, " Hi there")) reply = y;
+    }
+    const actions = @import("actions.zig");
+    const a = std.testing.allocator;
+    _ = try actions.handle(&f.app, &f.registry, a, .{ .mouse = .{ .kind = .press, .button = .left, .x = 4, .y = @intCast(reply) } });
+    _ = try actions.handle(&f.app, &f.registry, a, .{ .mouse = .{ .kind = .drag, .button = .left, .x = 30, .y = @intCast(reply) } });
+    try f.draw();
+    const selected = (@import("palette.zig").Palette{}).selected;
+    const cells = f.screen.cells[reply * 40 ..];
+    try std.testing.expect(!std.meta.eql(selected, cells[3].style.background));
+    try std.testing.expectEqual(selected, cells[4].style.background);
+    try std.testing.expectEqual(selected, cells[8].style.background);
+    // Nothing past the end of the text.
+    try std.testing.expect(!std.meta.eql(selected, cells[9].style.background));
+    // A change of width lays the rows out again and drops the selection.
+    std.testing.allocator.free(try view.drawCached(&f.screen, &f.app, .{ .registry = &f.registry }, &cache));
+    try std.testing.expect(f.app.selection.active());
+    try f.screen.resize(30, 14);
+    std.testing.allocator.free(try view.drawCached(&f.screen, &f.app, .{ .registry = &f.registry }, &cache));
+    try std.testing.expect(!f.app.selection.active());
+}

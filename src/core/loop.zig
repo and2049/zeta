@@ -120,6 +120,7 @@ pub const Loop = struct {
             if (l.config.session_started) |flag| flag.* = true;
         }
 
+        try l.appendShell(arena);
         // A run starts from the oldest steering item, else the oldest queued
         // one. Nothing left (e.g. the only input was withdrawn) means no
         // model request.
@@ -170,6 +171,7 @@ pub const Loop = struct {
                 // Even truncated calls go back to the model as error
                 // results so it can re-issue them.
                 more_tools = calls.len > 0;
+                try l.appendShell(arena);
                 pending = try l.take(arena, .steer);
                 if (!more_tools and pending == null) {
                     const text = try l.hooks().turnStop(arena, l.io, .{ .reply = reply, .continued = continued });
@@ -193,6 +195,7 @@ pub const Loop = struct {
     const input = @import("loop_input.zig");
     const take = input.take;
     const appendUser = input.appendUser;
+    const appendShell = input.appendShell;
     pub const appendHookText = input.appendHookText;
 
     /// Logs one result per assistant tool call, then ends the turn. Calls

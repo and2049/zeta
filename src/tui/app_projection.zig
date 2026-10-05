@@ -15,6 +15,7 @@ pub fn sync(app: *App, state: *const client.state.State) !void {
     app.connected = true;
     if (!std.mem.eql(u8, app.session_location, snapshot.info.location)) try app.setSessionLocation(snapshot.info.location);
     app.running = snapshot.running;
+    app.shell.set(if (snapshot.shell) |running| running.command else null, if (snapshot.shell) |running| running.startedAt else 0);
     app.title = try a.dupe(u8, snapshot.info.title orelse "Untitled session");
     app.named = if (snapshot.info.title) |title| title.len > 0 else false;
     app.model = if (snapshot.options.model) |name| try a.dupe(u8, name) else app.model_owned orelse "";
@@ -54,7 +55,9 @@ pub fn sync(app: *App, state: *const client.state.State) !void {
     for (app.messages.items) |*m| if (m.tool_running) {
         m.tool_running = snapshot.running;
     };
-    for (snapshot.inbox) |entry| try app.pending.append(app.allocator, .{
+    // A compaction waiting or under way is not a queued message; the
+    // working row reports it.
+    for (snapshot.inbox) |entry| if (entry.kind != .compact) try app.pending.append(app.allocator, .{
         .id = try a.dupe(u8, entry.id),
         .text = try a.dupe(u8, entry.text),
         .delivery = try a.dupe(u8, @tagName(entry.delivery)),
@@ -88,6 +91,17 @@ fn add(app: *App, a: A, m: proto.Message, outstanding: *std.StringHashMapUnmanag
         call.output = try output.toOwnedSlice(a);
         return;
     };
+    // A command the user ran: the command, then what it printed.
+    if (m.role == .user and m.origin != null and std.mem.eql(u8, m.origin.?, "shell") and m.content.len == 2 and m.content[0] == .text and m.content[1] == .text) {
+        return app.messages.append(app.allocator, .{
+            .id = try a.dupe(u8, m.id),
+            .role = "user",
+            .origin = "shell",
+            .text = try a.dupe(u8, m.content[0].text),
+            .output = try a.dupe(u8, m.content[1].text),
+            .is_error = m.isError,
+        });
+    }
     var text: std.ArrayList(u8) = .empty;
     var thinking: std.ArrayList(u8) = .empty;
     for (m.content) |part| switch (part) {
@@ -202,6 +216,21 @@ test "projection deep copies display fields and preserves reasoning and tool arg
     try std.testing.expectEqualStrings("queued", app.pending.items[0].text);
     try std.testing.expectEqual(@as(u64, 12), app.usage_input);
     try std.testing.expectEqual(@as(u64, 5), app.usage_output);
+}
+
+test "a waiting compaction is not listed as queued input" {
+    const a = std.testing.allocator;
+    var app = App.init(a, "/tmp");
+    defer app.deinit();
+    var state = client.state.State.init(a);
+    defer state.deinit();
+    state.snapshot = .{ .revision = 1, .info = .{ .id = "s", .location = "/tmp", .created = 0 }, .options = .{}, .running = true, .inbox = &.{
+        .{ .id = "c", .text = "", .delivery = .queue, .kind = .compact },
+        .{ .id = "p", .text = "next", .delivery = .queue },
+    }, .messages = &.{}, .inflight = null, .nextBefore = null };
+    try sync(&app, &state);
+    try std.testing.expectEqual(@as(usize, 1), app.pending.items.len);
+    try std.testing.expectEqualStrings("next", app.pending.items[0].text);
 }
 
 test "completed tool result clears outstanding call and retains error status" {

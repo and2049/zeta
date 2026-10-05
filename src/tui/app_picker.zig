@@ -1,13 +1,13 @@
 const std = @import("std");
 const picker = @import("picker.zig");
 
-/// Sessions labeled by title, with when they were created.
+/// Sessions labeled by title, with when they were last active.
 pub fn sessions(a: std.mem.Allocator, bytes: []const u8, clock: @import("clock.zig").Clock) ![]const picker.Item {
     const infos = try std.json.parseFromSliceLeaky([]const @import("client").session_api.Info, a, bytes, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
     const items = try a.alloc(picker.Item, infos.len);
     for (infos, items) |info, *item| {
         var buf: [32]u8 = undefined;
-        item.* = .{ .id = info.id, .label = info.title orelse "Untitled", .detail = try a.dupe(u8, clock.dateTime(&buf, info.created)) };
+        item.* = .{ .id = info.id, .label = info.title orelse "Untitled", .detail = try a.dupe(u8, clock.dateTime(&buf, info.updated orelse info.created)) };
     }
     return items;
 }
