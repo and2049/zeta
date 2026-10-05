@@ -12,7 +12,9 @@ pub const Options = struct {
     thinking: ?[]const u8 = null,
     environment: ?struct { profile: ?[]const u8 = null, model: ?[]const u8 = null } = null,
 };
-pub const Inbox = struct { id: []const u8, text: []const u8, delivery: enum { queue, steer }, images: []const proto.attachment.Image = &.{} };
+/// `kind`: a prompt, a waiting compaction (`text` is its instructions) or
+/// the result of a shell command the user ran (`text` is the command).
+pub const Inbox = struct { id: []const u8, text: []const u8, delivery: enum { queue, steer }, images: []const proto.attachment.Image = &.{}, kind: enum { prompt, compact, shell } = .prompt };
 pub const Snapshot = struct {
     revision: u64,
     info: Info,

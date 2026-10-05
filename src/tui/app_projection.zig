@@ -55,7 +55,9 @@ pub fn sync(app: *App, state: *const client.state.State) !void {
     for (app.messages.items) |*m| if (m.tool_running) {
         m.tool_running = snapshot.running;
     };
-    for (snapshot.inbox) |entry| try app.pending.append(app.allocator, .{
+    // A compaction waiting or under way is not a queued message; the
+    // working row reports it.
+    for (snapshot.inbox) |entry| if (entry.kind != .compact) try app.pending.append(app.allocator, .{
         .id = try a.dupe(u8, entry.id),
         .text = try a.dupe(u8, entry.text),
         .delivery = try a.dupe(u8, @tagName(entry.delivery)),
@@ -214,6 +216,21 @@ test "projection deep copies display fields and preserves reasoning and tool arg
     try std.testing.expectEqualStrings("queued", app.pending.items[0].text);
     try std.testing.expectEqual(@as(u64, 12), app.usage_input);
     try std.testing.expectEqual(@as(u64, 5), app.usage_output);
+}
+
+test "a waiting compaction is not listed as queued input" {
+    const a = std.testing.allocator;
+    var app = App.init(a, "/tmp");
+    defer app.deinit();
+    var state = client.state.State.init(a);
+    defer state.deinit();
+    state.snapshot = .{ .revision = 1, .info = .{ .id = "s", .location = "/tmp", .created = 0 }, .options = .{}, .running = true, .inbox = &.{
+        .{ .id = "c", .text = "", .delivery = .queue, .kind = .compact },
+        .{ .id = "p", .text = "next", .delivery = .queue },
+    }, .messages = &.{}, .inflight = null, .nextBefore = null };
+    try sync(&app, &state);
+    try std.testing.expectEqual(@as(usize, 1), app.pending.items.len);
+    try std.testing.expectEqualStrings("next", app.pending.items[0].text);
 }
 
 test "completed tool result clears outstanding call and retains error status" {
