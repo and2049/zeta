@@ -5,9 +5,10 @@ attaches to the shared server and uses the same HTTP/SSE API as scripts.
 
 From top to bottom:
 
-- The conversation, which scrolls. A new one shows the logo with the version
-  and the keys to get started beside it (the logo is left out when the
-  terminal is too small). Your messages sit on a slightly raised
+- The conversation, which scrolls. A new one shows the logo in the middle of
+  the left half, and the version and the keys to get started in the middle
+  of the right half (the logo is left out when the terminal is too
+  small). Your messages sit on a slightly raised
   background; tool calls take one line each with a status mark (✓ done,
   ✗ failed, ○ running). Reasoning and compaction summaries start collapsed
   to one line (`▶ Thinking: …` with the latest words). Each finished turn
