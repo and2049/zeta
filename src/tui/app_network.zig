@@ -6,7 +6,7 @@ const Io = std.Io;
 const A = std.mem.Allocator;
 const attachments = @import("app_attach.zig");
 
-pub const Kind = enum { create, move, directories, list_sessions, list_models, list_providers, save_key, start_oauth, status_oauth, cancel_oauth, open_url, copy, files, get, config, page, prompt, abort, rename, auto_title, model, thinking, delete_session, reload, mcp, extensions, compact, fork, remove_inbox, edit_inbox, list_commands, answer_question, list_questions, undo };
+pub const Kind = enum { create, move, directories, list_sessions, list_models, list_providers, save_key, start_oauth, status_oauth, cancel_oauth, open_url, open_link, copy, files, get, config, page, prompt, abort, rename, auto_title, model, thinking, delete_session, reload, mcp, extensions, compact, fork, remove_inbox, edit_inbox, list_commands, answer_question, list_questions, undo };
 pub const Job = struct {
     kind: Kind,
     id: []const u8 = "",
@@ -166,7 +166,7 @@ pub const Worker = struct {
         }
     }
     fn execute(w: *Worker, arena: A, j: Job) !Result {
-        if (j.kind == .open_url) {
+        if (j.kind == .open_url or j.kind == .open_link) {
             try @import("platform").browser.open(w.io, j.text);
             return .{ .job = j };
         }
@@ -184,7 +184,7 @@ pub const Worker = struct {
             .directories => try std.json.Stringify.valueAlloc(arena, try client.files.directories(&c, arena, j.text), .{}),
             .files => try std.json.Stringify.valueAlloc(arena, try client.files.find(&c, arena, cwd, j.text, 30), .{}),
             .list_providers => try std.json.Stringify.valueAlloc(arena, try client.auth.providers(&c, arena, cwd), .{}),
-            .open_url, .copy => unreachable,
+            .open_url, .open_link, .copy => unreachable,
             .save_key => blk: {
                 try client.auth.apiKey(&c, arena, j.id, j.text);
                 break :blk "{}";

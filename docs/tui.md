@@ -91,6 +91,19 @@ Wayland, `xclip` or `xsel` under X11. Selections over 100 KB only go to
 the program. Only the conversation can be selected this way; hold Shift
 while dragging for the terminal's own selection anywhere on the screen.
 
+## Links
+
+Web addresses in the conversation are underlined: Markdown links (shown as
+`text (address)`) and bare `http://` and `https://` addresses in replies,
+your own messages, expanded reasoning and expanded tool output. A click
+opens one in your browser (`xdg-open`, or `open` on macOS) and the footer
+says which site was opened. Other kinds of address, such as `file:` or
+`mailto:`, are shown but not opened.
+
+Links are also marked for the terminal (OSC 8), so terminals that support
+it show the address on hover, and their own way of opening a link (often
+Shift+click) works too.
+
 ## Sessions and models
 
 Use `/new` for a new conversation and `/resume` for the session picker.

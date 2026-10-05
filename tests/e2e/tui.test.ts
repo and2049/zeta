@@ -452,3 +452,37 @@ test("with copy set to manual a right click copies the selection", async () => {
   expect(terminalClipboard(t)).toEqual(["MANUAL_COPY"]);
   expect(await t.quit()).toBe(0);
 }, 15000);
+
+test("TUI opens a link when it is clicked and marks links for the terminal", async () => {
+  const bin = join(sb.root, "bin");
+  const opened = join(sb.root, "opened.txt");
+  mkdirSync(bin, { recursive: true });
+  for (const name of ["xdg-open", "open"]) writeFileSync(join(bin, name), `#!/bin/sh\nprintf '%s\\n' "$@" >> "${opened}"\n`, { mode: 0o755 });
+  sb.env.PATH = `${bin}:${sb.env.PATH}`;
+  const t = await start();
+  llm.reply({ text: "Read [the guide](https://docs.example.test/guide?a=1&b=2) or https://bare.example.test/x. Not [this](file:///etc/passwd)." });
+  t.send("links\r");
+  await waitFor(() => t.screen().includes("bare.example.test"), "reply");
+  expect(t.screen()).toContain("the guide (https://docs.example.test/guide?a=1&b=2)");
+  expect(t.output).toMatch(/\x1b\]8;id=[0-9a-f]+;https:\/\/docs\.example\.test\/guide\?a=1&b=2\x1b\\/);
+  expect(t.output).toMatch(/\x1b\]8;id=[0-9a-f]+;https:\/\/bare\.example\.test\/x\x1b\\/);
+  expect(t.output).not.toContain("file:///etc/passwd\x1b\\");
+
+  const click = (at: { x: number; y: number }) => t.send(mouse(0, at) + mouse(0, at, true));
+  const label = cell(t, "the guide");
+  click({ x: label.x + 2, y: label.y });
+  await waitFor(() => existsSync(opened) && readFileSync(opened, "utf8") === "https://docs.example.test/guide?a=1&b=2\n", "label opens its address");
+  await waitFor(() => t.screen().includes("Opened docs.example.test"), "status");
+  await Bun.sleep(450); // not a double click
+  const bare = cell(t, "https://bare.example.test/x");
+  click({ x: bare.x + 10, y: bare.y });
+  await waitFor(() => readFileSync(opened, "utf8").endsWith("https://bare.example.test/x\n"), "bare address opens");
+  await Bun.sleep(450);
+  // Plain text and other schemes open nothing.
+  click(cell(t, "Read"));
+  click(cell(t, "this"));
+  await Bun.sleep(300);
+  expect(readFileSync(opened, "utf8").trim().split("\n")).toHaveLength(2);
+  expect(terminalClipboard(t)).toHaveLength(0);
+  expect(await t.quit()).toBe(0);
+}, 15000);

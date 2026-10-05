@@ -158,13 +158,13 @@ const Cells = struct {
     inner: width.Iterator = .{ .input = "" },
     col: usize = 0,
 
-    const Cell = struct { bytes: []const u8, col: usize, columns: usize };
+    const Cell = struct { bytes: []const u8, col: usize, columns: usize, link: ?[]const u8 };
 
     fn next(c: *Cells) ?Cell {
         while (true) {
             if (c.inner.next()) |cluster| {
                 defer c.col += cluster.columns;
-                return .{ .bytes = cluster.bytes, .col = c.col, .columns = cluster.columns };
+                return .{ .bytes = cluster.bytes, .col = c.col, .columns = cluster.columns, .link = c.spans[c.span - 1].link };
             }
             if (c.span >= c.spans.len) return null;
             c.inner = .{ .input = c.spans[c.span].text };
@@ -198,6 +198,16 @@ fn word(line: p.Line, col: usize) [2]usize {
         if (col >= cell.col and col < cell.col + cell.columns) found = true;
     }
     return if (found) .{ start, cells.col } else .{ col, col +| 1 };
+}
+
+/// The web address the text at `point` opens, if any.
+pub fn linkAt(lines: []const p.Line, point: Point) ?[]const u8 {
+    if (point.line >= lines.len) return null;
+    var cells: Cells = .{ .spans = lines[point.line].spans };
+    while (cells.next()) |cell| {
+        if (point.col >= cell.col and point.col < cell.col + cell.columns) return cell.link;
+    }
+    return null;
 }
 
 /// The cells of `line` that `r` selects and that hold content.
@@ -289,6 +299,21 @@ test "a click selects nothing; two pick a word and three the whole line" {
     s.now_ms = 5000;
     s.press(12, 2);
     try std.testing.expectEqual(Unit.cell, s.unit);
+}
+
+test "a position on linked text gives its address" {
+    const a = std.testing.allocator;
+    var b = p.Builder.init(a);
+    defer b.deinit();
+    try b.pad(" ", .normal);
+    try b.wrapLinked("see https://a.test now", .normal, .link, 40, " ");
+    const lines = try b.finish();
+    defer p.freeLines(a, lines);
+    try std.testing.expect(linkAt(lines, .{ .line = 0, .col = 4 }) == null);
+    try std.testing.expectEqualStrings("https://a.test", linkAt(lines, .{ .line = 0, .col = 5 }).?);
+    try std.testing.expectEqualStrings("https://a.test", linkAt(lines, .{ .line = 0, .col = 18 }).?);
+    try std.testing.expect(linkAt(lines, .{ .line = 0, .col = 19 }) == null);
+    try std.testing.expect(linkAt(lines, .{ .line = 3, .col = 0 }) == null);
 }
 
 test "presses outside the transcript select nothing; drags past it ask to scroll" {

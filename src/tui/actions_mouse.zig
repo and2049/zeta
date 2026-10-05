@@ -1,4 +1,4 @@
-//! Mouse buttons: dragging selects transcript text.
+//! Mouse buttons: dragging selects transcript text, a click opens a link.
 const std = @import("std");
 const App = @import("App.zig");
 const input = @import("input.zig");
@@ -14,7 +14,11 @@ pub fn handle(app: *App, mouse: input.Mouse) Request {
     switch (mouse.kind) {
         .press => s.press(mouse.x, mouse.y),
         .drag => s.drag(mouse.x, mouse.y),
-        .release => if (s.release() and s.copy_on_release) return .copy_selection,
+        .release => {
+            const pressed = if (s.dragging and s.clicks == 1) s.anchor else null;
+            if (s.release()) return if (s.copy_on_release) .copy_selection else .none;
+            if (pressed) |point| return .{ .open_at = point };
+        },
     }
     return .none;
 }
@@ -55,6 +59,21 @@ test "release copies when set to; otherwise a right click does" {
     _ = handle(&app, .{ .kind = .drag, .button = .left, .x = 6, .y = 1 });
     try std.testing.expectEqual(Request.none, handle(&app, .{ .kind = .release, .button = .left, .x = 6, .y = 1 }));
     try std.testing.expectEqual(Request.copy_selection, handle(&app, .{ .kind = .press, .button = .right, .x = 6, .y = 1 }));
+}
+
+test "a click that selected nothing asks for the link under it" {
+    var app = App.init(std.testing.allocator, "/tmp");
+    defer app.deinit();
+    app.selection.viewport = .{ .first = 2, .height = 5, .start = 7, .total = 20 };
+    _ = handle(&app, .{ .kind = .press, .button = .left, .x = 3, .y = 4 });
+    const request = handle(&app, .{ .kind = .release, .button = .left, .x = 3, .y = 4 });
+    try std.testing.expectEqual(@import("selection.zig").Point{ .line = 9, .col = 3 }, request.open_at);
+    // The second click of a double click selects a word instead.
+    _ = handle(&app, .{ .kind = .press, .button = .left, .x = 3, .y = 4 });
+    try std.testing.expectEqual(Request.copy_selection, handle(&app, .{ .kind = .release, .button = .left, .x = 3, .y = 4 }));
+    // Outside the transcript there is nothing to open.
+    _ = handle(&app, .{ .kind = .press, .button = .left, .x = 3, .y = 12 });
+    try std.testing.expectEqual(Request.none, handle(&app, .{ .kind = .release, .button = .left, .x = 3, .y = 12 }));
 }
 
 test "a drag held above the transcript scrolls it and extends the selection" {

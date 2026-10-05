@@ -53,7 +53,7 @@ pub fn render(a: A, entries: []const Entry, options: Options) ![]p.Line {
                 var parts = std.mem.splitScalar(u8, std.mem.trim(u8, entry.text, "\r\n"), '\n');
                 while (parts.next()) |part| {
                     try b.pad(" ", .normal);
-                    try b.wrap(part, .user, inner, " ");
+                    try b.wrapLinked(part, .user, .link, inner, " ");
                     try b.newline();
                 }
                 try b.newline();
@@ -74,7 +74,7 @@ pub fn render(a: A, entries: []const Entry, options: Options) ![]p.Line {
             .tool => try tool(&b, entry, options),
             .notice => {
                 try b.add(" → ", .muted);
-                try b.wrap(std.mem.trim(u8, entry.text, " \t\r\n"), .muted, options.width, "   ");
+                try b.wrapLinked(std.mem.trim(u8, entry.text, " \t\r\n"), .muted, .link, options.width, "   ");
                 try b.newline();
             },
         }
@@ -102,7 +102,7 @@ fn disclosure(b: *p.Builder, label: []const u8, text: []const u8, style: p.Style
     var parts = std.mem.splitScalar(u8, body, '\n');
     while (parts.next()) |part| {
         try b.pad("   ", .normal);
-        try b.wrap(part, style, width -| 1, "   ");
+        try b.wrapLinked(part, style, .link, width -| 1, "   ");
         try b.newline();
     }
 }
@@ -185,7 +185,7 @@ fn block(b: *p.Builder, text: []const u8, style: p.Style, limit: usize, width: u
     while (parts.next()) |part| : (total += 1) {
         if (shown == limit) continue;
         try b.pad("   ", .normal);
-        try b.wrap(part, style, width, "   ");
+        try b.wrapLinked(part, style, .link, width, "   ");
         try b.newline();
         shown += 1;
     }
@@ -238,7 +238,7 @@ fn renderChange(b: *p.Builder, change: Change, width: usize) !void {
             }
             try b.pad("   ", .normal);
             try b.add(part.marker, part.style);
-            try b.wrap(line, part.style, width, "     ");
+            try b.wrapLinked(line, part.style, part.style, width, "     ");
             try b.newline();
         }
     }

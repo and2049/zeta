@@ -33,6 +33,8 @@ pub const Request = union(enum) {
     older,
     /// Put the selected transcript text on the clipboard.
     copy_selection,
+    /// A click on the transcript: open the link there, if there is one.
+    open_at: @import("selection.zig").Point,
 };
 
 /// Returned strings are owned by the caller's request arena.

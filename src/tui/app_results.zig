@@ -57,6 +57,7 @@ pub fn apply(env: *Env, result: network.Result) !void {
     const mine = app.session != null and std.mem.eql(u8, app.session.?, job.id);
     switch (job.kind) {
         .list_providers, .save_key, .start_oauth, .status_oauth => try auth.result(app, env.worker, env.gpa, result),
+        .open_link => app.say("Opened {s}", .{@import("links.zig").host(job.text)}),
         .create, .fork => {
             if (job.kind == .create) env.creating = false;
             const info = try std.json.parseFromSliceLeaky(client.session_api.Info, scratch, result.body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
@@ -221,6 +222,7 @@ fn failed(env: *Env, job: network.Job, err: anyerror) !void {
         .status_oauth => app.connect_polling = false,
         .cancel_oauth => return,
         .open_url => return app.say("Could not open browser; use URL shown (Enter to retry).", .{}),
+        .open_link => return app.say("Could not open {s}", .{job.text}),
         // `extra` is set when the terminal was given the text as well.
         .copy => return if (job.extra.len == 0) app.say("Could not copy: {s}", .{@errorName(err)}),
         .move => return switch (err) {

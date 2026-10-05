@@ -43,13 +43,15 @@ pub const Cell = struct {
     len: u8 = 1,
     continuation: bool = false,
     style: Style = .{},
+    /// Names the web address the cell opens (see `Screen.links`); 0: none.
+    link: u32 = 0,
     pub fn blank() Cell {
         var c: Cell = .{};
         c.glyph[0] = ' ';
         return c;
     }
     pub fn eql(a: Cell, b: Cell) bool {
-        return std.meta.eql(a.style, b.style) and a.continuation == b.continuation and a.len == b.len and std.mem.eql(u8, a.glyph[0..a.len], b.glyph[0..b.len]);
+        return std.meta.eql(a.style, b.style) and a.link == b.link and a.continuation == b.continuation and a.len == b.len and std.mem.eql(u8, a.glyph[0..a.len], b.glyph[0..b.len]);
     }
 };
 
@@ -63,6 +65,8 @@ pub const Screen = struct {
     cells: []Cell,
     previous: []Cell,
     invalid: bool = true,
+    /// The addresses of linked cells by id, owned.
+    links: std.AutoHashMapUnmanaged(u32, []u8) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, cols: usize, rows: usize) !Screen {
         if (cols == 0 or rows == 0 or cols > 1000 or rows > 1000) return error.InvalidDimensions;
@@ -76,6 +80,24 @@ pub const Screen = struct {
     pub fn deinit(self: *Screen) void {
         self.allocator.free(self.cells);
         self.allocator.free(self.previous);
+        self.forgetLinks();
+        self.links.deinit(self.allocator);
+    }
+    fn forgetLinks(self: *Screen) void {
+        var urls = self.links.valueIterator();
+        while (urls.next()) |url| self.allocator.free(url.*);
+        self.links.clearRetainingCapacity();
+    }
+    /// The id for cells that open `url`; 0 when it cannot be kept.
+    fn linkId(self: *Screen, url: []const u8) u32 {
+        const id = @max(1, @as(u32, @truncate(std.hash.Wyhash.hash(0, url))));
+        const entry = self.links.getOrPut(self.allocator, id) catch return 0;
+        if (entry.found_existing) return if (std.mem.eql(u8, entry.value_ptr.*, url)) id else 0;
+        entry.value_ptr.* = self.allocator.dupe(u8, url) catch {
+            self.links.removeByPtr(entry.key_ptr);
+            return 0;
+        };
+        return id;
     }
     pub fn resize(self: *Screen, cols: usize, rows: usize) !void {
         const next = try init(self.allocator, cols, rows);
@@ -84,6 +106,8 @@ pub const Screen = struct {
     }
     pub fn clear(self: *Screen) void {
         @memset(self.cells, Cell.blank());
+        // Every frame draws its links again, so old ones need not pile up.
+        if (self.links.count() > 512) self.forgetLinks();
     }
 
     /// Paints `background` under row `y` from column `x` to the edge,
@@ -105,7 +129,14 @@ pub const Screen = struct {
     }
 
     pub fn drawStyledText(self: *Screen, x: usize, y: usize, text: []const u8, style: Style) void {
+        self.drawLinkedText(x, y, text, style, null);
+    }
+
+    /// `url`, when given, is marked on the cells as a terminal hyperlink.
+    /// It must be printable ASCII.
+    pub fn drawLinkedText(self: *Screen, x: usize, y: usize, text: []const u8, style: Style, url: ?[]const u8) void {
         if (y >= self.rows or x >= self.cols) return;
+        const link = if (url) |target| self.linkId(target) else 0;
         var col = x;
         var it: width.Iterator = .{ .input = text };
         while (it.next()) |r| {
@@ -129,6 +160,7 @@ pub const Screen = struct {
             }
             var cell = Cell.blank();
             cell.style = style;
+            cell.link = link;
             @memcpy(cell.glyph[0..bytes.len], bytes);
             cell.len = @intCast(bytes.len);
             self.cells[y * self.cols + col] = cell;
@@ -145,6 +177,7 @@ pub const Screen = struct {
         const w = &out.writer;
         try w.writeAll("\x1b[?2026h\x1b[?25l\x1b[0m");
         var current_style: Style = .{};
+        var current_link: u32 = 0;
         if (self.invalid) try w.writeAll("\x1b[2J");
         for (0..self.rows) |y| {
             var x: usize = 0;
@@ -168,10 +201,17 @@ pub const Screen = struct {
                     try w.print("{s}{s}{s}{s}{s}m", .{ if (style.bold) ";1" else "", if (style.dim) ";2" else "", if (style.italic) ";3" else "", if (style.underline) ";4" else "", if (style.reverse) ";7" else "" });
                     current_style = style;
                 }
+                // OSC 8: cells with one id are one link, also across rows.
+                const link = self.cells[i].link;
+                if (link != current_link) {
+                    if (self.links.get(link)) |url| try w.print("\x1b]8;id={x};{s}\x1b\\", .{ link, url }) else try w.writeAll("\x1b]8;;\x1b\\");
+                    current_link = link;
+                }
                 try w.writeAll(self.cells[i].glyph[0..self.cells[i].len]);
                 x += 1;
             }
         }
+        if (current_link != 0) try w.writeAll("\x1b]8;;\x1b\\");
         try w.writeAll("\x1b[0m");
         if (cursor) |c| try w.print("\x1b[{d};{d}H\x1b[?25h", .{ @min(c.y, self.rows - 1) + 1, @min(c.x, self.cols - 1) + 1 });
         try w.writeAll("\x1b[?2026l");
@@ -231,6 +271,34 @@ test "style-only updates repaint using terminal palette and reset attributes" {
     defer std.testing.allocator.free(styled);
     try std.testing.expect(std.mem.indexOf(u8, styled, "\x1b[0;32;49;1ma") != null);
     try std.testing.expect(std.mem.indexOf(u8, styled, "\x1b[0m\x1b[1;2H") != null);
+}
+
+test "linked cells are wrapped in a hyperlink that is closed after them" {
+    var s = try Screen.init(std.testing.allocator, 12, 2);
+    defer s.deinit();
+    s.drawText(0, 0, "a ");
+    s.drawLinkedText(2, 0, "docs", .{ .underline = true }, "https://x.test/d");
+    s.drawLinkedText(0, 1, "more", .{ .underline = true }, "https://x.test/d");
+    s.drawText(4, 1, "!");
+    const first = try s.render(null);
+    defer std.testing.allocator.free(first);
+    try std.testing.expectEqual(s.cells[2].link, s.cells[12].link);
+    var open: [64]u8 = undefined;
+    const start = try std.fmt.bufPrint(&open, "\x1b]8;id={x};https://x.test/d\x1b\\", .{s.cells[2].link});
+    // Once per row: the cells between the two runs are not part of it.
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, first, start));
+    try std.testing.expect(std.mem.indexOf(u8, first, "\x1b]8;;\x1b\\!") != null);
+    // Nothing changed: nothing is drawn again, no link is opened.
+    const same = try s.render(null);
+    defer std.testing.allocator.free(same);
+    try std.testing.expect(std.mem.indexOf(u8, same, "\x1b]8") == null);
+    // The same text without its link is drawn again.
+    s.clear();
+    s.drawText(0, 0, "a docs");
+    const plain = try s.render(null);
+    defer std.testing.allocator.free(plain);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "\x1b[1;3H") != null);
+    try std.testing.expect(std.mem.indexOf(u8, plain, "\x1b]8;id") == null);
 }
 
 test "a null cursor stays hidden" {

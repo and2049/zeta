@@ -280,7 +280,9 @@ fn bar(screen: *Screen, a: std.mem.Allocator, registry: *const plugin.Registry, 
 fn drawSpans(screen: *Screen, x0: usize, y: usize, spans: []const presentation.Span) void {
     var x = x0;
     for (spans) |span| {
-        screen.drawStyledText(x, y, span.text, terminal_style.styleFor(span.style));
+        var style = terminal_style.styleFor(span.style);
+        if (span.link != null) style.underline = true;
+        screen.drawLinkedText(x, y, span.text, style, span.link);
         x += presentation.columns(span.text);
     }
 }

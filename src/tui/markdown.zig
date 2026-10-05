@@ -6,6 +6,7 @@ const std = @import("std");
 const p = @import("presentation_text.zig");
 const A = std.mem.Allocator;
 const table = @import("markdown_table.zig");
+const links = @import("links.zig");
 
 pub fn render(a: A, source: []const u8, width: usize) ![]p.Line {
     var b = p.Builder.init(a);
@@ -124,13 +125,15 @@ fn rule(line: []const u8) bool {
 
 /// Inline `code`, **strong** and [text](url) runs, wrapped into `b`;
 /// other markup stays literal. A link shows its text, then the URL when it
-/// differs.
+/// differs; both open a web address, as bare addresses do.
 pub fn inlineSpans(b: *p.Builder, text: []const u8, base: p.Style, width: usize, continuation: []const u8) !void {
     var i: usize = 0;
     var start: usize = 0;
     while (i < text.len) {
         if (text[i] == '[') if (link(text[i..])) |l| {
-            if (i > start) try b.wrap(text[start..i], base, width, continuation);
+            if (i > start) try b.wrapLinked(text[start..i], base, .link, width, continuation);
+            b.link = if (links.openable(l.url)) l.url else null;
+            defer b.link = null;
             try b.wrap(l.label, .link, width, continuation);
             if (!std.mem.eql(u8, l.label, l.url)) {
                 try b.wrap(" (", .muted, width, continuation);
@@ -153,12 +156,15 @@ pub fn inlineSpans(b: *p.Builder, text: []const u8, base: p.Style, width: usize,
             i = close + delimiter.len;
             continue;
         }
-        if (i > start) try b.wrap(text[start..i], base, width, continuation);
-        try b.wrap(text[i + delimiter.len .. close], if (delimiter.len == 1) .code else .strong, width, continuation);
+        if (i > start) try b.wrapLinked(text[start..i], base, .link, width, continuation);
+        if (delimiter.len == 1)
+            try b.wrapLinked(text[i + 1 .. close], .code, .code, width, continuation)
+        else
+            try b.wrapLinked(text[i + 2 .. close], .strong, .link, width, continuation);
         i = close + delimiter.len;
         start = i;
     }
-    if (start < text.len) try b.wrap(text[start..], base, width, continuation);
+    if (start < text.len) try b.wrapLinked(text[start..], base, .link, width, continuation);
 }
 
 const Link = struct { label: []const u8, url: []const u8, len: usize };
@@ -186,6 +192,11 @@ fn code(b: *p.Builder, line: []const u8, width: usize) !void {
     while (i < line.len) {
         const start = i;
         var style: p.Style = .normal;
+        if (links.next(line, i)) |found| if (found.start == i) {
+            try b.wrapLinked(line[i..found.end], .normal, .normal, width, " │ ");
+            i = found.end;
+            continue;
+        };
         if (line[i] == '"' or line[i] == '\'') {
             const quote = line[i];
             i += 1;
@@ -203,7 +214,7 @@ fn code(b: *p.Builder, line: []const u8, width: usize) !void {
             while (i < line.len and (std.ascii.isAlphanumeric(line[i]) or line[i] == '_')) : (i += 1) {}
             if (keyword(line[start..i])) style = .code_keyword;
         } else i += 1;
-        try b.wrap(line[start..i], style, width, " │ ");
+        try b.wrapLinked(line[start..i], style, style, width, " │ ");
     }
 }
 fn keyword(s: []const u8) bool {
@@ -235,9 +246,13 @@ test "tables, quotes, rules and links" {
     const bar = try joined(lines, 8);
     defer a.free(bar);
     try std.testing.expect(std.mem.startsWith(u8, bar, " ───"));
-    const links = try joined(lines, 9);
-    defer a.free(links);
-    try std.testing.expectEqualStrings(" see docs (https://x.test) and https://y", links);
+    const linked = try joined(lines, 9);
+    defer a.free(linked);
+    try std.testing.expectEqualStrings(" see docs (https://x.test) and https://y", linked);
+    for (lines[9].spans[1..]) |span| {
+        const target: ?[]const u8 = if (std.mem.eql(u8, span.text, "see ") or std.mem.eql(u8, span.text, " and ")) null else if (std.mem.indexOf(u8, span.text, "y") != null) "https://y" else "https://x.test";
+        if (target) |url| try std.testing.expectEqualStrings(url, span.link.?) else try std.testing.expect(span.link == null);
+    }
 }
 
 test "a table row still streaming in is plain text until its delimiter arrives" {
@@ -264,4 +279,20 @@ test "wrap headings lists and incomplete streaming fence" {
     const wrapped = try render(a, "# Heading\n- abcdef", 7);
     defer p.freeLines(a, wrapped);
     try std.testing.expect(wrapped.len > 2);
+}
+
+test "bare addresses open in text and code; other schemes do not" {
+    const a = std.testing.allocator;
+    const lines = try render(a, "go to https://a.test/x. `curl https://b.test` [mail](mailto:x@y.test)\n```\nfetch(\"https://c.test/api\")\n```", 80);
+    defer p.freeLines(a, lines);
+    var found: [3]bool = @splat(false);
+    for (lines) |line| for (line.spans) |span| {
+        if (std.mem.eql(u8, span.text, "mail")) try std.testing.expect(span.link == null);
+        const url = span.link orelse continue;
+        try std.testing.expectEqualStrings(url, span.text);
+        if (std.mem.eql(u8, url, "https://a.test/x")) found[0] = span.style == .link;
+        if (std.mem.eql(u8, url, "https://b.test")) found[1] = span.style == .code;
+        if (std.mem.eql(u8, url, "https://c.test/api")) found[2] = true;
+    };
+    try std.testing.expectEqual([3]bool{ true, true, true }, found);
 }

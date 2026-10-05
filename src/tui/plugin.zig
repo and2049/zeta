@@ -179,7 +179,7 @@ pub const Registry = struct {
                 while (b.spans.items.len > before) {
                     const span = b.spans.pop().?;
                     b.used -= @import("presentation_text.zig").columns(span.text);
-                    b.a.free(span.text);
+                    @import("presentation_text.zig").freeSpan(b.a, span);
                 }
             } else any = true;
         }

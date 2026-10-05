@@ -156,7 +156,13 @@ pub fn run(gpa: std.mem.Allocator, io: std.Io, options: Options) !void {
             try parser.feed(buf[0..count]);
             while (try parser.next()) |ev| {
                 defer ev.deinit(gpa);
-                if (try key(&env, &answers, input_arena.allocator(), &input_arena, ev) == .copy_selection) try copySelection(&env, &render_cache, &terminal);
+                switch (try key(&env, &answers, input_arena.allocator(), &input_arena, ev)) {
+                    .copy_selection => try copySelection(&env, &render_cache, &terminal),
+                    .open_at => |point| if (@import("selection.zig").linkAt(render_cache.lines orelse &.{}, point)) |url| {
+                        if (@import("links.zig").openable(url)) try worker.submit(.{ .kind = .open_link, .text = url });
+                    },
+                    else => {},
+                }
             }
         } else if (parser.flushEscape()) |ev| _ = try key(&env, &answers, input_arena.allocator(), &input_arena, ev);
     }
