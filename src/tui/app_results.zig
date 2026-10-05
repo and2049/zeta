@@ -221,6 +221,8 @@ fn failed(env: *Env, job: network.Job, err: anyerror) !void {
         .status_oauth => app.connect_polling = false,
         .cancel_oauth => return,
         .open_url => return app.say("Could not open browser; use URL shown (Enter to retry).", .{}),
+        // `extra` is set when the terminal was given the text as well.
+        .copy => return if (job.extra.len == 0) app.say("Could not copy: {s}", .{@errorName(err)}),
         .move => return switch (err) {
             error.SessionBusy => app.say("Stop the running turn first (Esc), then /cd again.", .{}),
             error.NotFound => app.say("No such directory: {s}", .{job.text}),

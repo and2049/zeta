@@ -10,6 +10,9 @@ pub const Settings = struct {
     thinking: Display = .collapsed,
     /// How compaction summaries start; Ctrl+T flips them.
     compaction: Display = .collapsed,
+    /// `select` copies dragged text when the button is released; with
+    /// `manual` it stays selected until a right click copies it.
+    copy: enum { select, manual } = .select,
 };
 
 pub const Loaded = struct {
@@ -84,6 +87,8 @@ test "settings with comments, trailing commas and bad values" {
     );
     try std.testing.expect(ok.problem == null);
     try std.testing.expectEqual(Display.expanded, ok.settings.thinking);
+    try std.testing.expect(ok.settings.copy == .select);
+    try std.testing.expect(parse(a, "{\"copy\": \"manual\"}").settings.copy == .manual);
     const bad = parse(a, "{\"thinking\": \"open\"}");
     try std.testing.expect(bad.problem != null);
     try std.testing.expectEqual(Display.collapsed, bad.settings.thinking);

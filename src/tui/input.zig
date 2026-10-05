@@ -25,6 +25,14 @@ pub const Key = enum {
     page_down,
     follow_end,
 };
+/// A button press, a move with the button held, or its release, at a
+/// zero-based cell.
+pub const Mouse = struct {
+    kind: enum { press, drag, release },
+    button: enum { left, middle, right },
+    x: u16,
+    y: u16,
+};
 pub const Event = union(enum) {
     text: u21,
     key: Key,
@@ -33,6 +41,7 @@ pub const Event = union(enum) {
     ctrl: u8,
     paste: []u8,
     wheel: i8, // -1 up, +1 down
+    mouse: Mouse,
     ignored,
 
     pub fn deinit(self: Event, allocator: std.mem.Allocator) void {
@@ -103,13 +112,7 @@ pub const Parser = struct {
                     self.pasting = true;
                     return self.next();
                 }
-                if (std.mem.startsWith(u8, seq, "<") and seq[seq.len - 1] == 'M') {
-                    var parts = std.mem.splitScalar(u8, seq[1 .. seq.len - 1], ';');
-                    const button = std.fmt.parseInt(u16, parts.next() orelse "", 10) catch return .ignored;
-                    if (button == 64) return .{ .wheel = -1 };
-                    if (button == 65) return .{ .wheel = 1 };
-                    return .ignored;
-                }
+                if (std.mem.startsWith(u8, seq, "<") and (seq[seq.len - 1] == 'M' or seq[seq.len - 1] == 'm')) return mouse(seq);
                 if (seq[seq.len - 1] == 'u' or std.mem.startsWith(u8, seq, "27;")) return modifiedKey(seq);
                 if (std.mem.eql(u8, seq, "5~")) return .{ .key = .page_up };
                 if (std.mem.eql(u8, seq, "6~")) return .{ .key = .page_down };
@@ -185,6 +188,32 @@ fn controlKey(byte: u8) ?Key {
         11 => .word_delete,
         else => null,
     };
+}
+
+/// An SGR mouse report, `< code ; column ; row` then `M` (press, move) or
+/// `m` (release). The code's low bits are the button, 32 marks a move and
+/// 64 the wheel; the modifier bits (4, 8, 16) are dropped.
+fn mouse(seq: []const u8) Event {
+    var parts = std.mem.splitScalar(u8, seq[1 .. seq.len - 1], ';');
+    const code = (std.fmt.parseInt(u16, parts.next() orelse "", 10) catch return .ignored) & ~@as(u16, 28);
+    const column = std.fmt.parseInt(u16, parts.next() orelse "", 10) catch return .ignored;
+    const row = std.fmt.parseInt(u16, parts.next() orelse "", 10) catch return .ignored;
+    const pressed = seq[seq.len - 1] == 'M';
+    if (code & 64 != 0) {
+        if (!pressed) return .ignored;
+        return if (code == 64) .{ .wheel = -1 } else if (code == 65) .{ .wheel = 1 } else .ignored;
+    }
+    if (column == 0 or row == 0 or code & 3 == 3) return .ignored;
+    return .{ .mouse = .{
+        .kind = if (!pressed) .release else if (code & 32 != 0) .drag else .press,
+        .button = switch (code & 3) {
+            0 => .left,
+            1 => .middle,
+            else => .right,
+        },
+        .x = column - 1,
+        .y = row - 1,
+    } };
 }
 
 const shift = 1;
@@ -266,6 +295,20 @@ test "fragmented UTF-8, escape, bracket paste, wheel and controls" {
     try std.testing.expectEqual(Key.newline, (try p.next()).?.key);
     try std.testing.expectEqual(Key.queue, (try p.next()).?.key);
     try std.testing.expectEqual(Key.escape, p.flushEscape().?.key);
+}
+
+test "mouse press, drag and release decode with zero-based cells" {
+    var p = Parser.init(std.testing.allocator);
+    defer p.deinit();
+    try p.feed("\x1b[<0;5;3M\x1b[<32;9;3M\x1b[<0;9;3m\x1b[<2;1;1M\x1b[<68;1;1M\x1b[<35;4;4M");
+    for ([_]Event{
+        .{ .mouse = .{ .kind = .press, .button = .left, .x = 4, .y = 2 } },
+        .{ .mouse = .{ .kind = .drag, .button = .left, .x = 8, .y = 2 } },
+        .{ .mouse = .{ .kind = .release, .button = .left, .x = 8, .y = 2 } },
+        .{ .mouse = .{ .kind = .press, .button = .right, .x = 0, .y = 0 } },
+        .{ .wheel = -1 }, // with shift held
+        .ignored, // a move with no button
+    }) |want| try std.testing.expectEqual(want, (try p.next()).?);
 }
 
 test "modified keys in CSI u and modifyOtherKeys form" {

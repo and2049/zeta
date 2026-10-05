@@ -38,6 +38,7 @@ pub fn main(init: std.process.Init) !void {
             .cwd = try std.process.currentPathAlloc(io, arena),
             .home = init.environ_map.get("HOME"),
             .colorterm = init.environ_map.get("COLORTERM"),
+            .clipboard = .{ .wayland = init.environ_map.get("WAYLAND_DISPLAY") != null, .x11 = init.environ_map.get("DISPLAY") != null },
             .environment = .{ .model = init.environ_map.get("ZETA_MODEL"), .profile = init.environ_map.get("ZETA_PROFILE") },
         });
     }

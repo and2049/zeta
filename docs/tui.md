@@ -37,7 +37,8 @@ and trailing commas are allowed.
 ```jsonc
 {
   "thinking": "collapsed",   // or "expanded": how reasoning starts
-  "compaction": "collapsed"  // or "expanded": how compaction summaries start
+  "compaction": "collapsed", // or "expanded": how compaction summaries start
+  "copy": "select"           // or "manual": see "Copying text"
 }
 ```
 
@@ -66,6 +67,29 @@ reported in the footer and the defaults apply.
   too, and runs a command that needs no arguments. Escape closes the list.
   `/name arguments` runs a prompt template; any other unknown `/name` is sent
   as ordinary text.
+
+## Copying text
+
+Drag with the left mouse button over the conversation to select text; the
+selection follows the text when you scroll, and dragging past the top or
+bottom edge scrolls. A double click selects a word and a triple click a
+whole line. Releasing the button copies the selection and the footer says
+`Copied to clipboard`.
+
+The copied text is what was written, not the rows as drawn: a line that
+was wrapped to fit comes back as one line, and padding and the gutters of
+code blocks and quotes are left out.
+
+With `"copy": "manual"` in `tui.jsonc`, releasing the button leaves the
+text selected and a right click copies it. Any key removes the selection
+(Escape does only that); scrolling keeps it.
+
+The text goes to the terminal's clipboard (OSC 52, which also works over
+SSH; tmux needs `set -g set-clipboard on`) and to the desktop's clipboard
+program when one is installed: `pbcopy` on macOS, `wl-copy` under
+Wayland, `xclip` or `xsel` under X11. Selections over 100 KB only go to
+the program. Only the conversation can be selected this way; hold Shift
+while dragging for the terminal's own selection anywhere on the screen.
 
 ## Sessions and models
 

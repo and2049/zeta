@@ -87,6 +87,8 @@ auto_title_attempted: bool = false,
 connected: bool = false,
 follow_end: bool = true,
 scroll: usize = 0,
+/// Transcript text picked with the mouse.
+selection: @import("selection.zig").State = .{},
 last_lines: usize = 0,
 history_prepend: bool = false,
 quit: bool = false,
@@ -223,6 +225,7 @@ pub fn switchSession(self: *App, id: []const u8) !void {
     self.pending.clearRetainingCapacity();
     self.follow_end = true;
     self.scroll = 0;
+    self.selection.clear();
     self.last_lines = 0;
     self.history_prepend = false;
     self.overlay = .none;

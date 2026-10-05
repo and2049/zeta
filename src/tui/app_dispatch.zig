@@ -8,7 +8,8 @@ const auth = @import("app_auth.zig");
 
 pub fn dispatch(app: *App, registry: *const plugin.Registry, worker: *Worker, req: actions.Request) !void {
     switch (req) {
-        .none, .older, .select_session => {},
+        // The run loop copies: it has the laid-out transcript.
+        .none, .older, .select_session, .copy_selection => {},
         .command => |c| {
             const command = registry.command(c.name) orelse return;
             var ctx: plugin.Context = .{ .app = app, .worker = worker };

@@ -27,12 +27,12 @@ pub fn render(a: A, source: []const u8, width: usize) ![]p.Line {
             if (fenceMarker(trimmed)) |m| {
                 if (m.char == fence and m.len >= fence_len and std.mem.trim(u8, trimmed[m.len..], " \t").len == 0) {
                     fence = 0;
-                    try b.add(" └", .muted);
+                    try b.pad(" └", .muted);
                     try b.newline();
                     continue;
                 }
             }
-            try b.add(" │ ", .muted);
+            try b.pad(" │ ", .muted);
             try code(&b, line, width);
             try b.newline();
             continue;
@@ -40,7 +40,7 @@ pub fn render(a: A, source: []const u8, width: usize) ![]p.Line {
         if (fenceMarker(trimmed)) |m| {
             fence = m.char;
             fence_len = m.len;
-            try b.add(" ┌ ", .muted);
+            try b.pad(" ┌ ", .muted);
             try b.wrap(std.mem.trim(u8, trimmed[m.len..], " \t"), .muted, width, "   ");
             try b.newline();
             continue;
@@ -72,7 +72,7 @@ pub fn render(a: A, source: []const u8, width: usize) ![]p.Line {
         }
         if (trimmed[0] == '>') {
             const quoted = std.mem.trimStart(u8, trimmed[1..], " ");
-            try b.add(" │ ", .muted);
+            try b.pad(" │ ", .muted);
             try inlineSpans(&b, quoted, .reasoning, width, " │ ");
             try b.newline();
             continue;
@@ -99,7 +99,7 @@ pub fn render(a: A, source: []const u8, width: usize) ![]p.Line {
                 body = trimmed[dot + 2 ..];
             }
         }
-        try b.add(" ", .normal);
+        try b.pad(" ", .normal);
         var continuation: [16]u8 = @splat(' ');
         const hang = 1 + @min(indent.len + p.columns(marker), continuation.len - 1);
         if (marker.len > 0) {

@@ -31,10 +31,20 @@ pub const Request = union(enum) {
     abort,
     answer_question: struct { id: []const u8, action: []const u8, content: ?std.json.Value },
     older,
+    /// Put the selected transcript text on the clipboard.
+    copy_selection,
 };
 
 /// Returned strings are owned by the caller's request arena.
 pub fn handle(app: *App, registry: *const plugin.Registry, arena: std.mem.Allocator, ev: input.Event) !Request {
+    if (ev == .mouse) return @import("actions_mouse.zig").handle(app, ev.mouse);
+    // Any key but scrolling drops the selection; Escape does only that.
+    const scrolling = ev == .wheel or ev == .ignored or ev == .key and (ev.key == .page_up or ev.key == .page_down or ev.key == .follow_end);
+    if (!scrolling and app.selection.anchor != null) {
+        const selected = app.selection.active();
+        app.selection.clear();
+        if (selected and ev == .key and ev.key == .escape) return .none;
+    }
     if (ev == .key and ev.key == .escape and app.overlay == .question) {
         if (app.questions.items.items.len > 0) return .{ .answer_question = .{ .id = app.questions.items.items[0].question.id, .action = "decline", .content = null } };
         app.overlay = .none;
@@ -285,6 +295,32 @@ test "escape hides the completion list before it aborts" {
 
 test {
     _ = picker;
+    _ = @import("actions_mouse.zig");
+}
+
+test "a key drops the selection, and Escape does nothing else then" {
+    var r = try plugin.Registry.init(std.testing.allocator, &@import("builtins.zig").plugins);
+    defer r.deinit();
+    var app = App.init(std.testing.allocator, "/tmp");
+    defer app.deinit();
+    const a = std.testing.allocator;
+    app.running = true;
+    app.selection.viewport = .{ .first = 0, .height = 5, .start = 0, .total = 5 };
+    for (0..2) |_| {
+        _ = try handle(&app, &r, a, .{ .mouse = .{ .kind = .press, .button = .left, .x = 1, .y = 1 } });
+        _ = try handle(&app, &r, a, .{ .mouse = .{ .kind = .drag, .button = .left, .x = 4, .y = 1 } });
+        try std.testing.expectEqual(Request.copy_selection, try handle(&app, &r, a, .{ .mouse = .{ .kind = .release, .button = .left, .x = 4, .y = 1 } }));
+        _ = try handle(&app, &r, a, .{ .wheel = -1 });
+        try std.testing.expect(app.selection.active());
+        try std.testing.expectEqual(Request.none, try handle(&app, &r, a, .{ .key = .escape }));
+        try std.testing.expect(!app.selection.active());
+    }
+    try std.testing.expectEqual(Request.abort, try handle(&app, &r, a, .{ .key = .escape }));
+    _ = try handle(&app, &r, a, .{ .mouse = .{ .kind = .press, .button = .left, .x = 1, .y = 1 } });
+    _ = try handle(&app, &r, a, .{ .mouse = .{ .kind = .drag, .button = .left, .x = 4, .y = 1 } });
+    _ = try handle(&app, &r, a, .{ .text = 'x' });
+    try std.testing.expect(!app.selection.active());
+    try std.testing.expectEqualStrings("x", app.editor.text());
 }
 
 test "question keys answer confirm, select, input and validate form" {

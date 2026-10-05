@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Sandbox, zetaBin } from "./harness";
 import { FakeOpenAI } from "./fake-openai";
@@ -388,5 +388,67 @@ test("tui.jsonc can show thinking expanded from the start", async () => {
   await waitFor(() => t.screen().includes("Answer"), "reply");
   expect(t.screen()).toContain("▼ Thinking:");
   expect(t.screen()).toContain("EXPANDED_REASONING");
+  expect(await t.quit()).toBe(0);
+}, 15000);
+
+/** Puts a stand-in clipboard program on PATH that saves what it is given. */
+function fakeClipboard() {
+  const bin = join(sb.root, "bin");
+  const saved = join(sb.root, "clipboard.txt");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "wl-copy"), `#!/bin/sh\ncat > "${saved}"\n`, { mode: 0o755 });
+  sb.env.PATH = `${bin}:${sb.env.PATH}`;
+  sb.env.WAYLAND_DISPLAY = "test";
+  return saved;
+}
+/** The screen cell (zero-based) where `text` starts. */
+function cell(t: Tui, text: string) {
+  const rows = t.screen().split("\n");
+  const y = rows.findIndex((row) => row.includes(text));
+  return { x: rows[y].indexOf(text), y };
+}
+const mouse = (code: number, at: { x: number; y: number }, release = false) => `\x1b[<${code};${at.x + 1};${at.y + 1}${release ? "m" : "M"}`;
+const terminalClipboard = (t: Tui) => [...t.output.matchAll(/\x1b\]52;c;([A-Za-z0-9+/=]*)\x1b\\/g)].map((m) => atob(m[1]));
+
+test("TUI copies dragged transcript text, rejoining wrapped rows", async () => {
+  const saved = fakeClipboard();
+  const t = await start();
+  const paragraph = `ALPHA ${"word ".repeat(20)}OMEGA`;
+  llm.reply({ text: `${paragraph}\n\n\`\`\`sh\necho CODE_LINE\n\`\`\`` });
+  t.send("go\r");
+  await waitFor(() => t.screen().includes("OMEGA") && t.screen().includes("CODE_LINE"), "reply");
+  const from = cell(t, "ALPHA"), to = cell(t, "OMEGA");
+  expect(to.y).toBe(from.y + 1);
+  t.send(mouse(0, from) + mouse(32, { x: to.x + 4, y: to.y }) + mouse(0, { x: to.x + 4, y: to.y }, true));
+  await waitFor(() => existsSync(saved) && readFileSync(saved, "utf8") === paragraph, "clipboard program");
+  expect(terminalClipboard(t).at(-1)).toBe(paragraph);
+  await waitFor(() => t.screen().includes("Copied to clipboard"), "status");
+
+  // A double click picks a word; the code block's gutter is not copied.
+  const code = cell(t, "echo CODE_LINE");
+  const word = { x: code.x + 7, y: code.y };
+  t.send(mouse(0, word) + mouse(0, word, true) + mouse(0, word) + mouse(0, word, true));
+  await waitFor(() => readFileSync(saved, "utf8") === "CODE_LINE", "double click");
+  t.send(mouse(0, { x: 0, y: code.y }) + mouse(32, { x: 60, y: code.y }) + mouse(0, { x: 60, y: code.y }, true));
+  await waitFor(() => readFileSync(saved, "utf8") === "echo CODE_LINE", "code without its gutter");
+  expect(await t.quit()).toBe(0);
+  expect(t.output).toContain("\x1b[?1002l");
+}, 15000);
+
+test("with copy set to manual a right click copies the selection", async () => {
+  const saved = fakeClipboard();
+  writeFileSync(join(sb.env.XDG_CONFIG_HOME, "zeta", "tui.jsonc"), '{ "copy": "manual" }');
+  const t = await start();
+  llm.reply({ text: "MANUAL_COPY text" });
+  t.send("go\r");
+  await waitFor(() => t.screen().includes("MANUAL_COPY"), "reply");
+  const from = cell(t, "MANUAL_COPY");
+  const to = { x: from.x + 10, y: from.y };
+  t.send(mouse(0, from) + mouse(32, to) + mouse(0, to, true));
+  await Bun.sleep(200);
+  expect(terminalClipboard(t)).toHaveLength(0);
+  t.send(mouse(2, to) + mouse(2, to, true));
+  await waitFor(() => existsSync(saved) && readFileSync(saved, "utf8") === "MANUAL_COPY", "right click copy");
+  expect(terminalClipboard(t)).toEqual(["MANUAL_COPY"]);
   expect(await t.quit()).toBe(0);
 }, 15000);

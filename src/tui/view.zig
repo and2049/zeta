@@ -15,6 +15,7 @@ const dock = @import("view_dock.zig");
 const app_completion = @import("app_completion.zig");
 const completion = @import("completion.zig");
 const clock = @import("clock.zig");
+const selection = @import("selection.zig");
 
 /// What a frame is drawn with besides the app state.
 pub const Frame = struct {
@@ -37,6 +38,9 @@ pub const Cache = struct {
     expand_tools: bool = false,
     show_reasoning: bool = false,
     show_compaction: bool = false,
+    /// Changes when rows are laid out differently (width or what is
+    /// expanded), not when the conversation grows.
+    layout: u64 = 0,
 
     pub fn init(allocator: std.mem.Allocator) Cache {
         return .{ .allocator = allocator };
@@ -89,6 +93,7 @@ pub const Cache = struct {
         }
         const fresh = try transcript.render(self.allocator, entries.items, .{ .width = cols, .expand_tools = app.expand_tools, .expand_reasoning = app.show_reasoning, .expand_compaction = app.show_compaction });
         if (self.lines) |old| presentation.freeLines(self.allocator, old);
+        if (self.columns != cols or self.expand_tools != app.expand_tools or self.show_reasoning != app.show_reasoning or self.show_compaction != app.show_compaction) self.layout +%= 1;
         self.lines = fresh;
         self.revision = app.render_revision;
         self.columns = cols;
@@ -191,6 +196,13 @@ fn transcriptArea(screen: *Screen, app: *App, frame: Frame, cache: *Cache, first
     // Scroll is the distance from the end: new output does not move the
     // view while the user reads older history.
     if (app.follow_end) app.scroll = 0 else if (!app.history_prepend and lines.len > app.last_lines) app.scroll +|= lines.len - app.last_lines;
+    // A selection stays on its text: it moves with older history added
+    // above and goes when the rows are laid out again.
+    const selected = &app.selection;
+    if (app.history_prepend) selected.shift(lines.len -| app.last_lines);
+    if (selected.layout != cache.layout) selected.clear();
+    selected.layout = cache.layout;
+    selected.viewport = .{};
     app.history_prepend = false;
     app.last_lines = lines.len;
     if (app.messages.items.len == 0 and height > 1) {
@@ -205,9 +217,12 @@ fn transcriptArea(screen: *Screen, app: *App, frame: Frame, cache: *Cache, first
     app.scroll = @min(app.scroll, lines.len -| height);
     const end = lines.len -| app.scroll;
     const start = end -| height;
-    for (lines[start..end], first..) |line, y| {
+    selected.viewport = .{ .first = first, .height = end - start, .start = start, .total = lines.len };
+    const range = selected.range(lines);
+    for (lines[start..end], first.., start..) |line, y, index| {
         drawSpans(screen, 0, y, line.spans);
         if (line.surface) screen.fill(0, y, frame.palette.surface);
+        if (range) |r| if (selection.shown(line, r, index)) |cols| screen.fillSpan(cols[0], cols[1], y, frame.palette.selected);
     }
     if (app.scroll > 0 and height > 0) {
         var buf: [64]u8 = undefined;

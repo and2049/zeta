@@ -52,7 +52,7 @@ pub fn render(a: A, entries: []const Entry, options: Options) ![]p.Line {
                 try b.newline();
                 var parts = std.mem.splitScalar(u8, std.mem.trim(u8, entry.text, "\r\n"), '\n');
                 while (parts.next()) |part| {
-                    try b.add(" ", .normal);
+                    try b.pad(" ", .normal);
                     try b.wrap(part, .user, inner, " ");
                     try b.newline();
                 }
@@ -62,15 +62,12 @@ pub fn render(a: A, entries: []const Entry, options: Options) ![]p.Line {
             .assistant => {
                 const rendered = try md.render(a, std.mem.trim(u8, entry.text, "\r\n"), inner);
                 defer p.freeLines(a, rendered);
-                for (rendered) |line| {
-                    for (line.spans) |span| try b.add(span.text, span.style);
-                    try b.newline();
-                }
+                try b.extend(rendered);
             },
             .reasoning => try disclosure(&b, "Thinking", entry.text, .reasoning, options.expand_reasoning, options.width),
             .compaction => try disclosure(&b, entry.label, entry.text, .muted, options.expand_compaction, options.width),
             .turn_end => {
-                try b.add(" ", .normal);
+                try b.pad(" ", .normal);
                 try b.add(entry.text, if (entry.failed) .failure else if (entry.stopped) .warning else .muted);
                 try b.newline();
             },
@@ -104,7 +101,7 @@ fn disclosure(b: *p.Builder, label: []const u8, text: []const u8, style: p.Style
     try b.newline();
     var parts = std.mem.splitScalar(u8, body, '\n');
     while (parts.next()) |part| {
-        try b.add("   ", .normal);
+        try b.pad("   ", .normal);
         try b.wrap(part, style, width -| 1, "   ");
         try b.newline();
     }
@@ -155,7 +152,7 @@ fn tail(b: *p.Builder, text: []const u8, style: p.Style, width: usize) !void {
 }
 
 fn tool(b: *p.Builder, entry: Entry, options: Options) !void {
-    try b.add(" ", .normal);
+    try b.pad(" ", .normal);
     if (entry.pending) try b.add("○ ", .muted) else if (entry.failed) try b.add("✗ ", .failure) else try b.add("✓ ", .success);
     try b.add(entry.label, .tool_name);
     const summary = if (entry.summary.len > 0) entry.summary else firstLine(entry.text);
@@ -167,7 +164,7 @@ fn tool(b: *p.Builder, entry: Entry, options: Options) !void {
     if (!options.expand_tools) {
         // A failure says why even when collapsed.
         if (entry.failed and !entry.pending) {
-            try b.add("   ", .normal);
+            try b.pad("   ", .normal);
             try clipped(b, firstLine(entry.output), .failure, options.width);
             try b.newline();
         }
@@ -187,7 +184,7 @@ fn block(b: *p.Builder, text: []const u8, style: p.Style, limit: usize, width: u
     var total: usize = 0;
     while (parts.next()) |part| : (total += 1) {
         if (shown == limit) continue;
-        try b.add("   ", .normal);
+        try b.pad("   ", .normal);
         try b.wrap(part, style, width, "   ");
         try b.newline();
         shown += 1;
@@ -239,7 +236,7 @@ fn renderChange(b: *p.Builder, change: Change, width: usize) !void {
                 clipped_diff = true;
                 break;
             }
-            try b.add("   ", .normal);
+            try b.pad("   ", .normal);
             try b.add(part.marker, part.style);
             try b.wrap(line, part.style, width, "     ");
             try b.newline();

@@ -93,6 +93,12 @@ pub const Screen = struct {
         for (x..self.cols) |col| self.cells[y * self.cols + col].style.background = background;
     }
 
+    /// Paints `background` under cells `x0` up to `x1` of row `y`.
+    pub fn fillSpan(self: *Screen, x0: usize, x1: usize, y: usize, background: Color) void {
+        if (y >= self.rows) return;
+        for (@min(x0, self.cols)..@min(x1, self.cols)) |col| self.cells[y * self.cols + col].style.background = background;
+    }
+
     /// x/y are zero-based. Wide glyphs never straddle the right edge.
     pub fn drawText(self: *Screen, x: usize, y: usize, text: []const u8) void {
         self.drawStyledText(x, y, text, .{});
